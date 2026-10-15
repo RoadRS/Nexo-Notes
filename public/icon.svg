@@ -1,0 +1,80 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
+  <!-- Android Adaptive / Squircle Background with Nexo Notes Indigo Palette -->
+  <defs>
+    <linearGradient id="bgGrad" x1="64" y1="48" x2="448" y2="464" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#4F46E5"/>
+      <stop offset="50%" stop-color="#4338CA"/>
+      <stop offset="100%" stop-color="#312E81"/>
+    </linearGradient>
+    <linearGradient id="brainStroke" x1="160" y1="120" x2="352" y2="380" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="100%" stop-color="#C7D2FE"/>
+    </linearGradient>
+    <radialGradient id="insightGlow" cx="256" cy="230" r="90" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#818CF8" stop-opacity="0.8"/>
+      <stop offset="60%" stop-color="#6366F1" stop-opacity="0.2"/>
+      <stop offset="100%" stop-color="#4338CA" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="subtleShadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#1E1B4B" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+
+  <!-- Squircle Base -->
+  <rect width="512" height="512" rx="120" fill="url(#bgGrad)"/>
+
+  <!-- Subtle Radial Insight Atmosphere Behind Brain -->
+  <circle cx="256" cy="240" r="140" fill="url(#insightGlow)"/>
+
+  <g filter="url(#subtleShadow)">
+    <!-- Minimalist Cerebral Hemispheres (Left & Right) with Psychology Silhouette -->
+    <!-- Left Hemisphere -->
+    <path d="M246 136C220 136 198 148 184 166C162 170 148 188 148 212C148 226 154 238 164 246C152 258 146 274 146 292C146 318 166 340 192 344C204 362 224 374 246 376V136Z" 
+          fill="#1E1B4B" 
+          fill-opacity="0.22" 
+          stroke="url(#brainStroke)" 
+          stroke-width="14" 
+          stroke-linecap="round" 
+          stroke-linejoin="round"/>
+
+    <!-- Right Hemisphere -->
+    <path d="M266 136C292 136 314 148 328 166C350 170 364 188 364 212C364 226 358 238 348 246C360 258 366 274 366 292C366 318 346 340 320 344C308 362 288 374 266 376V136Z" 
+          fill="#1E1B4B" 
+          fill-opacity="0.22" 
+          stroke="url(#brainStroke)" 
+          stroke-width="14" 
+          stroke-linecap="round" 
+          stroke-linejoin="round"/>
+
+    <!-- Left Hemisphere Internal Gyri / Cognitive Convolutions -->
+    <path d="M200 188C194 200 196 216 210 224M180 248C192 254 208 250 216 266M204 312C216 322 232 320 242 316" 
+          stroke="#E0E7FF" 
+          stroke-width="10" 
+          stroke-linecap="round"/>
+
+    <!-- Right Hemisphere Internal Gyri / Cognitive Convolutions -->
+    <path d="M312 188C318 200 316 216 302 224M332 248C320 254 304 250 296 266M308 312C296 322 280 320 270 316" 
+          stroke="#E0E7FF" 
+          stroke-width="10" 
+          stroke-linecap="round"/>
+
+    <!-- Central Psychology Axis / Subtle Greek Psi (Ψ) Convergence -->
+    <!-- Central Stem -->
+    <line x1="256" y1="140" x2="256" y2="390" stroke="#FFFFFF" stroke-width="12" stroke-linecap="round"/>
+    <!-- Psi Flanks bridging hemispheres -->
+    <path d="M214 260C214 286 230 306 256 306C282 306 298 286 298 260" 
+          stroke="#FFFFFF" 
+          stroke-width="12" 
+          stroke-linecap="round" 
+          fill="none"/>
+
+    <!-- Prefrontal Focal Insight Spark / Cognitive Understanding Node -->
+    <circle cx="256" cy="180" r="14" fill="#FFFFFF"/>
+    <circle cx="256" cy="180" r="24" stroke="#A5B4FC" stroke-width="4" stroke-opacity="0.75"/>
+    <!-- Synaptic Rays of Insight -->
+    <line x1="256" y1="150" x2="256" y2="158" stroke="#FFFFFF" stroke-width="6" stroke-linecap="round"/>
+    <line x1="256" y1="202" x2="256" y2="210" stroke="#FFFFFF" stroke-width="6" stroke-linecap="round"/>
+    <line x1="230" y1="180" x2="238" y2="180" stroke="#FFFFFF" stroke-width="6" stroke-linecap="round"/>
+    <line x1="274" y1="180" x2="282" y2="180" stroke="#FFFFFF" stroke-width="6" stroke-linecap="round"/>
+  </g>
+</svg>

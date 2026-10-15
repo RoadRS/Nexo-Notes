@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Left Cerebral Hemisphere -->
+    <path
+        android:pathData="M52,32 C47,32 43,34.4 40.4,38 C36.4,38.8 33.6,42 33.6,46.4 C33.6,49 34.8,51.2 36.6,52.8 C34.4,55 33.2,58.2 33.2,61.4 C33.2,66.2 37,70.2 41.8,71 C44,74.4 47.8,76.6 52,77 L52,32 Z"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="3.2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:fillColor="#1E1B4B"
+        android:fillAlpha="0.25" />
+
+    <!-- Right Cerebral Hemisphere -->
+    <path
+        android:pathData="M56,32 C61,32 65,34.4 67.6,38 C71.6,38.8 74.4,42 74.4,46.4 C74.4,49 73.2,51.2 71.4,52.8 C73.6,55 74.8,58.2 74.8,61.4 C74.8,66.2 71,70.2 66.2,71 C64,74.4 60.2,76.6 56,77 L56,32 Z"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="3.2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:fillColor="#1E1B4B"
+        android:fillAlpha="0.25" />
+
+    <!-- Central Psychology Axis / Subtle Psi Stem -->
+    <path
+        android:pathData="M54,33 L54,78"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="3"
+        android:strokeLineCap="round" />
+
+    <!-- Psi Arc Bridging Hemispheres -->
+    <path
+        android:pathData="M46,55 C46,60.5 49.5,64.5 54,64.5 C58.5,64.5 62,60.5 62,55"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="2.8"
+        android:strokeLineCap="round" />
+
+    <!-- Focal Insight Spark Node -->
+    <path
+        android:pathData="M54,41 m-3.5,0 a3.5,3.5 0 1,0 7,0 a3.5,3.5 0 1,0 -7,0"
+        android:fillColor="#FFFFFF" />
+</vector>
