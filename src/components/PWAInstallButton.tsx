@@ -42,6 +42,17 @@ export const PWAInstallButton: React.FC = () => {
     };
   }, []);
 
+  useEffect(() => {
+    if (!showIOSGuide) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setShowIOSGuide(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [showIOSGuide]);
+
   const install = async () => {
     if (!deferredPrompt) return;
     await deferredPrompt.prompt();
@@ -58,41 +69,61 @@ export const PWAInstallButton: React.FC = () => {
     <>
       {deferredPrompt ? (
         <button
+          type="button"
           onClick={install}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs shadow-sm transition active:scale-95"
+          className="inline-flex items-center gap-1.5 min-h-[38px] px-3 py-1.5 rounded-xl bg-stone-100 dark:bg-stone-800 hover:bg-stone-200 dark:hover:bg-stone-700 text-stone-800 dark:text-stone-200 border border-stone-200 dark:border-stone-700 font-semibold text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600"
         >
-          <Download className="w-3.5 h-3.5" />
-          <span>Instalar en Android / Samsung</span>
+          <Download className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
+          <span className="hidden xs:inline">Instalar app</span>
         </button>
       ) : isIOS ? (
         <button
+          type="button"
           onClick={() => setShowIOSGuide(true)}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-zinc-800 text-slate-700 dark:text-zinc-300 font-medium text-xs hover:bg-slate-200 transition"
+          className="inline-flex items-center gap-1.5 min-h-[38px] px-3 py-1.5 rounded-xl bg-stone-100 dark:bg-stone-800 hover:bg-stone-200 dark:hover:bg-stone-700 text-stone-800 dark:text-stone-200 border border-stone-200 dark:border-stone-700 font-medium text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600"
         >
-          <Smartphone className="w-3.5 h-3.5" />
-          <span>Instalar app</span>
+          <Smartphone className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
+          <span className="hidden xs:inline">Instalar app</span>
         </button>
       ) : null}
 
       {/* iOS Guide Modal */}
       {showIOSGuide && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
-          <div className="w-full max-w-sm rounded-3xl bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 p-6 shadow-2xl">
+        <div
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-xs p-0 sm:p-4"
+          onClick={() => setShowIOSGuide(false)}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="ios-install-guide-title"
+            onClick={(e) => e.stopPropagation()}
+            className="w-full sm:max-w-sm rounded-t-3xl sm:rounded-2xl bg-white dark:bg-stone-900 border-t sm:border border-stone-200 dark:border-stone-800 p-5 sm:p-6 shadow-2xl safe-area-bottom"
+          >
             <div className="flex items-center justify-between mb-3">
-              <h3 className="text-sm font-bold text-slate-900 dark:text-zinc-100">
+              <h2
+                id="ios-install-guide-title"
+                className="text-base font-bold text-stone-900 dark:text-stone-100"
+              >
                 Instalar en pantalla de inicio
-              </h3>
-              <button onClick={() => setShowIOSGuide(false)} className="text-slate-400">
+              </h2>
+              <button
+                type="button"
+                onClick={() => setShowIOSGuide(false)}
+                aria-label="Cerrar guía de instalación"
+                className="inline-flex items-center justify-center min-w-[36px] min-h-[36px] rounded-xl text-stone-500 hover:bg-stone-100 dark:hover:bg-stone-800"
+              >
                 <X className="w-4 h-4" />
               </button>
             </div>
-            <p className="text-xs text-slate-600 dark:text-zinc-300 space-y-2 leading-relaxed">
+            <p className="text-xs text-stone-600 dark:text-stone-300 space-y-2 leading-relaxed">
               1. Toca el botón <strong>Compartir</strong> en la barra inferior de Safari.<br />
               2. Desplázate hacia abajo y selecciona <strong>Añadir a pantalla de inicio</strong>.
             </p>
             <button
+              type="button"
               onClick={() => setShowIOSGuide(false)}
-              className="mt-4 w-full py-2 rounded-xl bg-slate-100 dark:bg-zinc-800 text-xs font-semibold text-slate-800 dark:text-zinc-200"
+              className="mt-5 w-full min-h-[42px] py-2 rounded-xl bg-stone-100 dark:bg-stone-800 hover:bg-stone-200 dark:hover:bg-stone-700 text-xs font-semibold text-stone-800 dark:text-stone-200 transition-colors"
             >
               Entendido
             </button>

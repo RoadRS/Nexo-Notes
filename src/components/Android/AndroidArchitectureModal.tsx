@@ -1,9 +1,19 @@
-import React, { useState } from 'react';
-import { X, Copy, Check, Code2, Database, Smartphone, Layers } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { X, Copy, Check, Code2 } from 'lucide-react';
 
 export const AndroidArchitectureModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
   const [selectedFile, setSelectedFile] = useState<string>('NoteEntity.kt');
   const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onClose]);
 
   const codeFiles: Record<string, { title: string; category: string; code: string }> = {
     'NoteEntity.kt': {
@@ -438,43 +448,64 @@ dependencies {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-3 sm:p-5">
-      <div className="w-full max-w-2xl max-h-[92vh] flex flex-col bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-3xl shadow-2xl overflow-hidden">
+    <div
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-xs p-0 sm:p-5"
+      onClick={onClose}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="android-arch-modal-title"
+        onClick={(e) => e.stopPropagation()}
+        className="w-full sm:max-w-3xl max-h-[92vh] sm:max-h-[88vh] flex flex-col bg-white dark:bg-stone-900 border-t sm:border border-stone-200 dark:border-stone-800 rounded-t-3xl sm:rounded-2xl shadow-2xl overflow-hidden safe-area-bottom"
+      >
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-950/40 shrink-0">
-          <div className="flex items-center gap-2.5">
-            <div className="p-2 rounded-xl bg-indigo-100 dark:bg-indigo-950/70 text-indigo-600 dark:text-indigo-400">
-              <Code2 className="w-5 h-5 stroke-[2.2]" />
+        <div className="flex items-center justify-between gap-3 px-5 py-4 border-b border-stone-200 dark:border-stone-800 bg-stone-50/70 dark:bg-stone-950/50 shrink-0">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="p-2 rounded-xl bg-stone-200/80 dark:bg-stone-800 text-stone-700 dark:text-stone-300 shrink-0">
+              <Code2 className="w-5 h-5 stroke-[2]" />
             </div>
-            <div>
-              <h3 className="font-bold text-sm text-slate-900 dark:text-zinc-50 leading-tight">
-                Arquitectura Android Nativa (Kotlin + Jetpack Compose + Room)
-              </h3>
-              <p className="text-[11px] text-slate-500 dark:text-zinc-400">
-                Código modular 100% reproducible y listo para Android Studio
+            <div className="min-w-0">
+              <h2
+                id="android-arch-modal-title"
+                className="font-bold text-sm sm:text-base text-stone-900 dark:text-stone-100 leading-tight truncate"
+              >
+                Referencia Android (Kotlin · Jetpack Compose · Room)
+              </h2>
+              <p className="text-xs text-stone-500 dark:text-stone-400 truncate mt-0.5">
+                Entidades, DAOs y componentes equivalentes para Android Studio
               </p>
             </div>
           </div>
           <button
+            type="button"
             onClick={onClose}
-            className="p-1.5 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-zinc-200 transition"
+            aria-label="Cerrar especificación técnica"
+            className="inline-flex items-center justify-center min-w-[40px] min-h-[40px] rounded-xl text-stone-500 hover:text-stone-800 dark:hover:text-stone-200 hover:bg-stone-200/60 dark:hover:bg-stone-800 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* File selector tabs */}
-        <div className="flex items-center gap-1.5 px-5 py-2.5 bg-slate-100/60 dark:bg-zinc-950/60 border-b border-slate-200 dark:border-zinc-800 overflow-x-auto no-scrollbar text-xs">
+        <div
+          role="tablist"
+          aria-label="Archivos de referencia Kotlin"
+          className="flex items-center gap-1.5 px-5 py-2.5 bg-stone-100/80 dark:bg-stone-950/60 border-b border-stone-200 dark:border-stone-800 overflow-x-auto no-scrollbar text-xs shrink-0"
+        >
           {Object.keys(codeFiles).map((fileName) => {
             const isSelected = selectedFile === fileName;
             return (
               <button
                 key={fileName}
+                type="button"
+                role="tab"
+                aria-selected={isSelected}
                 onClick={() => setSelectedFile(fileName)}
-                className={`px-3 py-1.5 rounded-xl whitespace-nowrap font-mono transition text-xs ${
+                className={`min-h-[36px] px-3 py-1.5 rounded-xl whitespace-nowrap font-mono transition-colors text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600 ${
                   isSelected
-                    ? 'bg-indigo-600 text-white font-semibold shadow-xs'
-                    : 'bg-white dark:bg-zinc-900 text-slate-600 dark:text-zinc-400 border border-slate-200 dark:border-zinc-800 hover:bg-slate-50 dark:hover:bg-zinc-800'
+                    ? 'bg-indigo-600 text-white font-semibold shadow-2xs'
+                    : 'bg-white dark:bg-stone-900 text-stone-700 dark:text-stone-300 border border-stone-200 dark:border-stone-800 hover:bg-stone-50 dark:hover:bg-stone-800'
                 }`}
               >
                 {fileName}
@@ -484,14 +515,15 @@ dependencies {
         </div>
 
         {/* Code Content */}
-        <div className="flex-1 overflow-y-auto p-5 relative bg-slate-900 text-slate-100 font-mono text-xs leading-relaxed">
-          <div className="flex items-center justify-between pb-3 mb-3 border-b border-slate-800">
-            <span className="text-[11px] text-slate-400">
+        <div className="flex-1 overflow-y-auto p-5 relative bg-stone-950 text-stone-100 font-mono text-xs leading-relaxed">
+          <div className="flex items-center justify-between gap-2 pb-3 mb-3 border-b border-stone-800">
+            <span className="text-xs text-stone-400">
               {codeFiles[selectedFile].category} · {codeFiles[selectedFile].title}
             </span>
             <button
+              type="button"
               onClick={handleCopy}
-              className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs transition"
+              className="inline-flex items-center gap-1.5 min-h-[34px] px-3 py-1.5 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-200 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
             >
               {copied ? (
                 <>
@@ -513,13 +545,14 @@ dependencies {
         </div>
 
         {/* Footer */}
-        <div className="px-5 py-3 border-t border-slate-200 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-950/40 flex items-center justify-between text-xs text-slate-500">
-          <span>Target SDK 34+ · Material 3 Theme · Coroutines & Flow</span>
+        <div className="px-5 py-3.5 border-t border-stone-200 dark:border-stone-800 bg-stone-50/70 dark:bg-stone-950/50 flex items-center justify-between gap-3 text-xs text-stone-500 dark:text-stone-400 shrink-0">
+          <span>Target SDK 34+ · Material 3 · Coroutines & Flow</span>
           <button
+            type="button"
             onClick={onClose}
-            className="px-4 py-1.5 rounded-xl bg-slate-900 dark:bg-zinc-100 text-white dark:text-zinc-900 font-semibold text-xs"
+            className="min-h-[38px] px-4 py-1.5 rounded-xl bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 font-semibold text-xs hover:opacity-90 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600"
           >
-            Entendido
+            Cerrar
           </button>
         </div>
       </div>

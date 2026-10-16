@@ -86,11 +86,19 @@ export async function extractPPTX(
 
     let slideText = '';
     if (xmlContent) {
-      // Extract text inside <a:t> tags
+      // Extract text inside <a:t> tags and decode basic XML entities
       const textMatches = xmlContent.match(/<a:t[^>]*>([^<]*)<\/a:t>/gi);
       if (textMatches) {
         slideText = textMatches
-          .map((tag) => tag.replace(/<[^>]+>/g, ''))
+          .map((tag) =>
+            tag
+              .replace(/<[^>]+>/g, '')
+              .replace(/&amp;/g, '&')
+              .replace(/&lt;/g, '<')
+              .replace(/&gt;/g, '>')
+              .replace(/&quot;/g, '"')
+              .replace(/&apos;|&#39;/g, "'")
+          )
           .join(' ')
           .replace(/\s+/g, ' ')
           .trim();
@@ -177,59 +185,75 @@ export async function extractPDF(
     });
 
     const pdf = await loadingTask.promise;
-    const numPages = pdf.numPages;
+    try {
+      const numPages = pdf.numPages;
 
-    onProgress?.({
-      currentPage: 0,
-      totalPages: numPages,
-      fileName,
-      stage: 'extracting',
-      message: `Documento detectado con ${numPages} páginas. Extrayendo contenido...`,
-    });
-
-    for (let pageNum = 1; pageNum <= numPages; pageNum++) {
       onProgress?.({
-        currentPage: pageNum,
+        currentPage: 0,
         totalPages: numPages,
         fileName,
         stage: 'extracting',
-        message: `Leyendo página ${pageNum} de ${numPages}...`,
+        message: `Documento detectado con ${numPages} páginas. Extrayendo contenido...`,
       });
 
-      try {
-        const page = await pdf.getPage(pageNum);
-        const textContent = await page.getTextContent();
-        const strings = textContent.items
-          .map((item: any) => ('str' in item ? item.str : ''))
-          .filter(Boolean);
+      for (let pageNum = 1; pageNum <= numPages; pageNum++) {
+        onProgress?.({
+          currentPage: pageNum,
+          totalPages: numPages,
+          fileName,
+          stage: 'extracting',
+          message: `Leyendo página ${pageNum} de ${numPages}...`,
+        });
 
-        let pageText = strings.join(' ').replace(/\s+/g, ' ').trim();
+        let page: any = null;
+        try {
+          page = await pdf.getPage(pageNum);
+          const textContent = await page.getTextContent();
+          const strings = textContent.items
+            .map((item: any) => ('str' in item ? item.str : ''))
+            .filter(Boolean);
 
-        // Check if page is scanned or image-heavy (< 25 characters of digital text)
-        let isPageScanned = false;
-        if (pageText.length < 25) {
-          isPageScanned = true;
+          let pageText = strings.join(' ').replace(/\s+/g, ' ').trim();
+
+          // Check if page is scanned or image-heavy (< 25 characters of digital text)
+          let isPageScanned = false;
+          if (pageText.length < 25) {
+            isPageScanned = true;
+            hasScannedPages = true;
+            ocrApplied = true;
+            pageText = `[Página ${pageNum} escaneada - OCR local aplicado]\nTexto y conceptos recuperados mediante OCR de la página ${pageNum} del documento ${fileName}. Lectura académica procesada.`;
+          }
+
+          pages.push({
+            pageNumber: pageNum,
+            content: pageText,
+            hasOCR: isPageScanned,
+          });
+        } catch (pageError) {
+          console.warn(`[Nexo Notes] Advertencia al procesar página ${pageNum} de ${fileName}:`, pageError);
+          failedPages.push(pageNum);
           hasScannedPages = true;
           ocrApplied = true;
-          pageText = `[Página ${pageNum} escaneada - OCR local aplicado]\nTexto y conceptos recuperados mediante OCR de la página ${pageNum} del documento ${fileName}. Lectura académica procesada.`;
+          // Non-destructive fallback for this specific page, so remaining pages continue!
+          pages.push({
+            pageNumber: pageNum,
+            content: `[Página ${pageNum} - OCR recuperado tras incidencia de lectura]\nContenido de la página ${pageNum} de ${fileName} protegido y disponible para análisis de términos.`,
+            hasOCR: true,
+          });
+        } finally {
+          try {
+            page?.cleanup?.();
+          } catch {
+            // Ignore cleanup errors
+          }
         }
-
-        pages.push({
-          pageNumber: pageNum,
-          content: pageText,
-          hasOCR: isPageScanned,
-        });
-      } catch (pageError) {
-        console.warn(`[Nexo Notes] Advertencia al procesar página ${pageNum} de ${fileName}:`, pageError);
-        failedPages.push(pageNum);
-        hasScannedPages = true;
-        ocrApplied = true;
-        // Non-destructive fallback for this specific page, so remaining pages continue!
-        pages.push({
-          pageNumber: pageNum,
-          content: `[Página ${pageNum} - OCR recuperado tras incidencia de lectura]\nContenido de la página ${pageNum} de ${fileName} protegido y disponible para análisis de términos.`,
-          hasOCR: true,
-        });
+      }
+    } finally {
+      try {
+        await pdf.cleanup();
+        await loadingTask.destroy();
+      } catch {
+        // Ignore cleanup/destroy errors
       }
     }
   } catch (pdfErr) {

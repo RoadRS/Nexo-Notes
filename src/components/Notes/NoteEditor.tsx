@@ -3,7 +3,7 @@ import { useApp } from '../../context/AppContext';
 import { NoteEntity } from '../../types/models';
 import {
   ArrowLeft,
-  Sparkles,
+  Layers,
   Pin,
   Trash2,
   Folder,
@@ -14,6 +14,9 @@ import {
   Quote,
   CheckCircle2,
   Save,
+  BookOpen,
+  Plus,
+  X,
 } from 'lucide-react';
 
 export const NoteEditor: React.FC<{
@@ -34,7 +37,23 @@ export const NoteEditor: React.FC<{
   const [showConfirmDelete, setShowConfirmDelete] = useState(false);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingDraftRef = useRef<NoteEntity | null>(null);
+
+  // Flush any pending debounced auto-save on unmount or before switching note
+  useEffect(() => {
+    return () => {
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+        saveTimeoutRef.current = null;
+      }
+      if (pendingDraftRef.current) {
+        const draftToFlush = pendingDraftRef.current;
+        pendingDraftRef.current = null;
+        void updateNote(draftToFlush);
+      }
+    };
+  }, [note.id]);
 
   // Synchronize state if note prop changes
   useEffect(() => {
@@ -44,7 +63,20 @@ export const NoteEditor: React.FC<{
     setSubject(note.subject || '');
     setTags(note.tags || []);
     setIsSaved(true);
+    pendingDraftRef.current = null;
   }, [note.id]);
+
+  // Close delete confirmation on Escape
+  useEffect(() => {
+    if (!showConfirmDelete) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setShowConfirmDelete(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [showConfirmDelete]);
 
   // Debounced auto-save (Room persistent database)
   const triggerAutoSave = (
@@ -55,17 +87,22 @@ export const NoteEditor: React.FC<{
     newTags: string[]
   ) => {
     setIsSaved(false);
+    const nextDraft: NoteEntity = {
+      ...note,
+      title: newTitle,
+      content: newContent,
+      folderId: newFolderId || undefined,
+      subject: newSubject,
+      tags: newTags,
+    };
+    pendingDraftRef.current = nextDraft;
+
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
 
     saveTimeoutRef.current = setTimeout(async () => {
-      await updateNote({
-        ...note,
-        title: newTitle,
-        content: newContent,
-        folderId: newFolderId || undefined,
-        subject: newSubject,
-        tags: newTags,
-      });
+      saveTimeoutRef.current = null;
+      pendingDraftRef.current = null;
+      await updateNote(nextDraft);
       setIsSaved(true);
     }, 600);
   };
@@ -139,258 +176,370 @@ export const NoteEditor: React.FC<{
     }, 0);
   };
 
-  const handleManualSave = async () => {
-    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
-    await updateNote({
-      ...note,
-      title,
-      content,
-      folderId: folderId || undefined,
-      subject,
-      tags,
-    });
-    setIsSaved(true);
-    showNotification('Nota guardada localmente.', 'success');
+  const handleManualSave = async (notifyIfSaved: boolean = false) => {
+    const hadPendingChanges = Boolean(pendingDraftRef.current || !isSaved);
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+      saveTimeoutRef.current = null;
+    }
+    pendingDraftRef.current = null;
+    if (hadPendingChanges || notifyIfSaved) {
+      try {
+        await updateNote({
+          ...note,
+          title,
+          content,
+          folderId: folderId || undefined,
+          subject,
+          tags,
+        });
+        setIsSaved(true);
+        if (notifyIfSaved || hadPendingChanges) {
+          showNotification('Apunte guardado localmente.', 'success');
+        }
+      } catch (err) {
+        console.error('Error guardando apunte:', err);
+        showNotification('No se pudo guardar el apunte localmente.', 'error');
+      }
+    }
   };
 
   const wordsCount = content.trim() ? content.trim().split(/\s+/).length : 0;
   const charsCount = content.length;
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-zinc-950 pb-20 transition-colors">
-      {/* Top action header */}
-      <div className="sticky top-0 z-30 bg-white/95 dark:bg-zinc-900/95 backdrop-blur-md border-b border-slate-200 dark:border-zinc-800 px-4 py-2.5 flex items-center justify-between gap-2 shadow-xs">
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => {
-              handleManualSave();
-              onBack();
-            }}
-            className="p-2 -ml-1 rounded-xl text-slate-700 dark:text-zinc-200 hover:bg-slate-100 dark:hover:bg-zinc-800 transition"
-            title="Volver"
-          >
-            <ArrowLeft className="w-5 h-5 stroke-[2.2]" />
-          </button>
+    <div className="min-h-screen bg-stone-50 dark:bg-stone-950 pb-24 transition-colors">
+      {/* Sticky Top Action Bar */}
+      <header className="sticky top-0 z-30 bg-stone-50/95 dark:bg-stone-950/95 backdrop-blur-md border-b border-stone-200 dark:border-stone-800">
+        <div className="max-w-4xl mx-auto px-3 sm:px-6 h-14 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 min-w-0">
+            <button
+              type="button"
+              onClick={async () => {
+                await handleManualSave(false);
+                onBack();
+              }}
+              aria-label="Volver a mis apuntes"
+              className="inline-flex items-center gap-1.5 min-w-[44px] min-h-[44px] sm:min-h-[38px] px-2.5 rounded-xl text-stone-700 dark:text-stone-200 hover:bg-stone-200/60 dark:hover:bg-stone-800 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600"
+              title="Guardar y volver a apuntes"
+            >
+              <ArrowLeft className="w-5 h-5 stroke-[2]" />
+              <span className="hidden sm:inline text-xs font-medium">Apuntes</span>
+            </button>
 
-          <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-zinc-400">
-            {isSaved ? (
-              <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-medium">
-                <CheckCircle2 className="w-3.5 h-3.5" /> Guardado
-              </span>
-            ) : (
-              <span className="flex items-center gap-1 text-amber-500 animate-pulse font-medium">
-                <Save className="w-3.5 h-3.5" /> Guardando...
-              </span>
-            )}
+            <div
+              role="status"
+              aria-live="polite"
+              className="flex items-center gap-1.5 text-xs text-stone-500 dark:text-stone-400 pl-1"
+            >
+              {isSaved ? (
+                <span className="inline-flex items-center gap-1 text-stone-600 dark:text-stone-400 font-medium">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                  <span className="hidden xs:inline">Guardado</span>
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400 font-medium">
+                  <Save className="w-3.5 h-3.5 shrink-0" />
+                  <span>Guardando…</span>
+                </span>
+              )}
+            </div>
+          </div>
+
+          <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
+            {/* Pin toggle */}
+            <button
+              type="button"
+              onClick={() => togglePinNote(note.id)}
+              aria-pressed={note.isPinned}
+              aria-label={note.isPinned ? 'Desfijar apunte' : 'Fijar apunte arriba'}
+              className={`inline-flex items-center justify-center min-w-[44px] min-h-[44px] sm:min-w-[38px] sm:min-h-[38px] rounded-xl transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600 ${
+                note.isPinned
+                  ? 'text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40'
+                  : 'text-stone-600 dark:text-stone-400 hover:bg-stone-200/60 dark:hover:bg-stone-800'
+              }`}
+              title={note.isPinned ? 'Desfijar' : 'Fijar arriba'}
+            >
+              <Pin className={`w-4 h-4 ${note.isPinned ? 'fill-current' : ''}`} />
+            </button>
+
+            {/* Delete note */}
+            <button
+              type="button"
+              onClick={() => setShowConfirmDelete(true)}
+              aria-label="Eliminar apunte"
+              className="inline-flex items-center justify-center min-w-[44px] min-h-[44px] sm:min-w-[38px] sm:min-h-[38px] rounded-xl text-stone-600 dark:text-stone-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600"
+              title="Eliminar apunte"
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
+
+            {/* Primary CTA: Analyze Concept */}
+            <button
+              type="button"
+              onClick={async () => {
+                await handleManualSave(false);
+                onAnalyze(
+                  { ...note, title, content, folderId: folderId || undefined, subject, tags },
+                  selectedText || undefined
+                );
+              }}
+              className="inline-flex items-center gap-1.5 min-h-[40px] sm:min-h-[38px] px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs shadow-2xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600 focus-visible:ring-offset-2"
+              title="Extraer y definir conceptos psicológicos de este apunte"
+            >
+              <Layers className="w-3.5 h-3.5 shrink-0" />
+              <span>{selectedText ? 'Analizar selección' : 'Extraer conceptos'}</span>
+            </button>
           </div>
         </div>
+      </header>
 
-        <div className="flex items-center gap-1">
-          {/* Analyze Concept CTA */}
-          <button
-            onClick={() => {
-              handleManualSave();
-              onAnalyze(
-                { ...note, title, content, folderId: folderId || undefined, subject, tags },
-                selectedText || undefined
-              );
-            }}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs shadow-sm transition active:scale-95"
-            title="Analizar términos técnicos en esta nota"
-          >
-            <Sparkles className="w-3.5 h-3.5" />
-            <span>{selectedText ? 'Analizar selección' : 'Analizar conceptos'}</span>
-          </button>
-
-          {/* Pin toggle */}
-          <button
-            onClick={() => togglePinNote(note.id)}
-            className={`p-2 rounded-xl transition ${
-              note.isPinned
-                ? 'text-amber-500 bg-amber-50 dark:bg-amber-950/50'
-                : 'text-slate-500 dark:text-zinc-400 hover:bg-slate-100 dark:hover:bg-zinc-800'
-            }`}
-            title={note.isPinned ? 'Desfijar' : 'Fijar arriba'}
-          >
-            <Pin className={`w-4 h-4 ${note.isPinned ? 'fill-amber-500' : ''}`} />
-          </button>
-
-          {/* Delete note */}
-          <button
-            onClick={() => setShowConfirmDelete(true)}
-            className="p-2 rounded-xl text-slate-500 dark:text-zinc-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 transition"
-            title="Eliminar apunte"
-          >
-            <Trash2 className="w-4 h-4" />
-          </button>
+      {/* Editorial Reading & Writing Workspace */}
+      <div className="max-w-3xl mx-auto px-4 sm:px-6 pt-5 sm:pt-8 space-y-4">
+        {/* 1. Note Title Input (Primary Hierarchy) */}
+        <div>
+          <label htmlFor="note-title-input" className="sr-only">
+            Título del apunte
+          </label>
+          <input
+            id="note-title-input"
+            type="text"
+            value={title}
+            onChange={(e) => handleTitleChange(e.target.value)}
+            placeholder="Título del apunte…"
+            className="w-full text-2xl sm:text-3xl font-bold tracking-tight bg-transparent text-stone-900 dark:text-stone-100 placeholder:text-stone-400 dark:placeholder:text-stone-600 focus:outline-none pb-1"
+          />
         </div>
-      </div>
 
-      {/* Main editor container */}
-      <div className="max-w-xl mx-auto px-4 pt-4 space-y-4">
-        {/* Note Metadata: Folder, Subject, Tags */}
-        <div className="bg-white dark:bg-zinc-900 border border-slate-200/80 dark:border-zinc-800/80 rounded-2xl p-3.5 space-y-3 shadow-xs">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
-            {/* Folder Selector */}
-            <div className="flex items-center gap-2">
-              <Folder className="w-4 h-4 text-slate-400 shrink-0" />
+        {/* 2. Compact Study Metadata Bar: Notebook, Subject, Tags */}
+        <div className="bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 rounded-2xl p-3 sm:p-3.5 space-y-2.5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+            {/* Folder / Notebook Selector */}
+            <div className="relative flex items-center">
+              <label htmlFor="note-folder-select" className="sr-only">
+                Cuaderno o carpeta
+              </label>
+              <Folder className="w-4 h-4 text-stone-400 absolute left-3 pointer-events-none" />
               <select
+                id="note-folder-select"
                 value={folderId}
                 onChange={(e) => handleFolderChange(e.target.value)}
-                className="w-full bg-slate-50 dark:bg-zinc-800/70 border border-slate-200 dark:border-zinc-700/80 rounded-xl px-2.5 py-1.5 text-slate-800 dark:text-zinc-200 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                className="w-full min-h-[40px] pl-9 pr-3 py-1.5 text-base sm:text-xs rounded-xl bg-stone-50 dark:bg-stone-800/70 border border-stone-200 dark:border-stone-700 text-stone-800 dark:text-stone-200 focus:outline-none focus:ring-2 focus:ring-indigo-600"
               >
-                <option value="">Sin carpeta</option>
+                <option value="">Sin cuaderno asignado</option>
                 {folders.map((f) => (
                   <option key={f.id} value={f.id}>
-                    📁 {f.name}
+                    {f.name}
                   </option>
                 ))}
               </select>
             </div>
 
             {/* Subject Field */}
-            <div className="flex items-center gap-2">
-              <span className="text-slate-400 font-bold shrink-0">#</span>
+            <div className="relative flex items-center">
+              <label htmlFor="note-subject-input" className="sr-only">
+                Materia o asignatura
+              </label>
+              <BookOpen className="w-4 h-4 text-stone-400 absolute left-3 pointer-events-none" />
               <input
+                id="note-subject-input"
                 type="text"
                 value={subject}
                 onChange={(e) => {
                   setSubject(e.target.value);
                   triggerAutoSave(title, content, folderId, e.target.value, tags);
                 }}
-                placeholder="Materia o asignatura (ej: Psicología)"
-                className="w-full bg-slate-50 dark:bg-zinc-800/70 border border-slate-200 dark:border-zinc-700/80 rounded-xl px-2.5 py-1.5 text-slate-800 dark:text-zinc-200 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                placeholder="Materia (ej. Psicopatología, Cognitiva)"
+                className="w-full min-h-[40px] pl-9 pr-3 py-1.5 text-base sm:text-xs rounded-xl bg-stone-50 dark:bg-stone-800/70 border border-stone-200 dark:border-stone-700 text-stone-800 dark:text-stone-200 placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-indigo-600"
               />
             </div>
           </div>
 
           {/* Tags list & add tag */}
-          <div className="flex items-center gap-1.5 flex-wrap pt-1 border-t border-slate-100 dark:border-zinc-800 text-xs">
-            <Tag className="w-3.5 h-3.5 text-slate-400" />
+          <div className="flex items-center gap-1.5 flex-wrap pt-2 border-t border-stone-100 dark:border-stone-800">
+            <Tag className="w-3.5 h-3.5 text-stone-400 shrink-0 mr-0.5" aria-hidden="true" />
             {tags.map((t) => (
               <span
                 key={t}
-                className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 font-medium"
+                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300 text-xs font-medium"
               >
-                #{t}
+                <span>#{t}</span>
                 <button
+                  type="button"
                   onClick={() => handleRemoveTag(t)}
-                  className="hover:text-red-500 ml-0.5 text-xs"
+                  aria-label={`Quitar etiqueta ${t}`}
+                  className="p-0.5 rounded hover:text-red-600 dark:hover:text-red-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600"
                 >
-                  ×
+                  <X className="w-3 h-3" />
                 </button>
               </span>
             ))}
-            <div className="inline-flex items-center">
+
+            <div className="inline-flex items-center gap-1">
+              <label htmlFor="note-new-tag-input" className="sr-only">
+                Añadir etiqueta
+              </label>
               <input
+                id="note-new-tag-input"
                 type="text"
                 value={newTagInput}
                 onChange={(e) => setNewTagInput(e.target.value)}
                 onKeyDown={handleAddTag}
-                placeholder="+ Etiqueta"
-                className="w-20 px-2 py-0.5 text-xs bg-transparent border-b border-dashed border-slate-300 dark:border-zinc-700 text-slate-700 dark:text-zinc-300 placeholder:text-slate-400 focus:outline-none focus:border-indigo-500"
+                placeholder="+ Añadir etiqueta…"
+                className="w-32 sm:w-28 px-2 py-1 text-base sm:text-xs bg-transparent border-b border-dashed border-stone-300 dark:border-stone-700 text-stone-800 dark:text-stone-200 placeholder:text-stone-400 focus:outline-none focus:border-indigo-600"
               />
+              {newTagInput.trim() && (
+                <button
+                  type="button"
+                  onClick={handleAddTag}
+                  aria-label="Confirmar etiqueta"
+                  className="inline-flex items-center justify-center min-w-[28px] min-h-[28px] rounded-lg bg-stone-200 dark:bg-stone-800 text-stone-700 dark:text-stone-200 hover:bg-indigo-600 hover:text-white transition-colors"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                </button>
+              )}
             </div>
           </div>
         </div>
 
-        {/* Selected text prompt indicator */}
+        {/* Contextual Selected Text Banner */}
         {selectedText && (
-          <div className="flex items-center justify-between gap-2 p-2.5 rounded-xl bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800/50 text-xs text-indigo-900 dark:text-indigo-200 animate-fadeIn">
-            <span className="line-clamp-1 italic">
-              Fragmento seleccionado: "{selectedText}"
+          <div
+            role="region"
+            aria-label="Acción sobre texto seleccionado"
+            className="flex items-center justify-between gap-3 px-3.5 py-2.5 rounded-xl bg-indigo-50/80 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800/60 text-xs text-stone-800 dark:text-stone-200"
+          >
+            <span className="line-clamp-1 italic text-stone-600 dark:text-stone-300">
+              Selección: «{selectedText}»
             </span>
             <button
-              onClick={() => onAnalyze({ ...note, title, content, folderId, subject, tags }, selectedText)}
-              className="shrink-0 font-bold text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1"
+              type="button"
+              onClick={async () => {
+                const currentSelection = selectedText;
+                await handleManualSave(false);
+                onAnalyze(
+                  { ...note, title, content, folderId: folderId || undefined, subject, tags },
+                  currentSelection
+                );
+              }}
+              className="shrink-0 font-semibold text-indigo-600 dark:text-indigo-400 hover:underline inline-flex items-center gap-1 py-1 px-2 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600"
             >
-              <Sparkles className="w-3 h-3" /> Analizar
+              <Layers className="w-3.5 h-3.5" />
+              <span>Analizar fragmento</span>
             </button>
           </div>
         )}
 
-        {/* Note Title Input */}
-        <input
-          type="text"
-          value={title}
-          onChange={(e) => handleTitleChange(e.target.value)}
-          placeholder="Título del apunte"
-          className="w-full text-2xl font-bold bg-transparent text-slate-900 dark:text-zinc-50 placeholder:text-slate-400 dark:placeholder:text-zinc-600 focus:outline-none border-b border-transparent focus:border-slate-200 dark:focus:border-zinc-800 pb-1"
-        />
-
-        {/* Formatting toolbar */}
-        <div className="flex items-center gap-1 py-1 px-1 text-slate-600 dark:text-zinc-400 border-y border-slate-200/60 dark:border-zinc-800/60 overflow-x-auto text-xs">
+        {/* Formatting Toolbar & Counter */}
+        <div
+          role="toolbar"
+          aria-label="Formato de texto"
+          className="flex items-center gap-1 py-1.5 px-1 text-stone-600 dark:text-stone-400 border-y border-stone-200 dark:border-stone-800 overflow-x-auto text-xs"
+        >
           <button
+            type="button"
             onClick={() => insertFormatting('**', '**')}
-            className="p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-zinc-800 transition"
-            title="Negrita"
+            aria-label="Negrita"
+            title="Negrita (**texto**)"
+            className="inline-flex items-center justify-center min-w-[38px] min-h-[38px] sm:min-w-[34px] sm:min-h-[34px] rounded-lg hover:bg-stone-200/70 dark:hover:bg-stone-800 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600"
           >
             <Bold className="w-4 h-4" />
           </button>
           <button
+            type="button"
             onClick={() => insertFormatting('## ')}
-            className="p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-zinc-800 transition"
-            title="Título sección"
+            aria-label="Encabezado de sección"
+            title="Encabezado de sección (## )"
+            className="inline-flex items-center justify-center min-w-[38px] min-h-[38px] sm:min-w-[34px] sm:min-h-[34px] rounded-lg hover:bg-stone-200/70 dark:hover:bg-stone-800 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600"
           >
             <Heading2 className="w-4 h-4" />
           </button>
           <button
+            type="button"
             onClick={() => insertFormatting('- ')}
-            className="p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-zinc-800 transition"
-            title="Lista con viñetas"
+            aria-label="Lista con viñetas"
+            title="Lista con viñetas (- )"
+            className="inline-flex items-center justify-center min-w-[38px] min-h-[38px] sm:min-w-[34px] sm:min-h-[34px] rounded-lg hover:bg-stone-200/70 dark:hover:bg-stone-800 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600"
           >
             <List className="w-4 h-4" />
           </button>
           <button
+            type="button"
             onClick={() => insertFormatting('> ')}
-            className="p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-zinc-800 transition"
-            title="Cita"
+            aria-label="Cita bibliográfica o textual"
+            title="Cita (> )"
+            className="inline-flex items-center justify-center min-w-[38px] min-h-[38px] sm:min-w-[34px] sm:min-h-[34px] rounded-lg hover:bg-stone-200/70 dark:hover:bg-stone-800 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600"
           >
             <Quote className="w-4 h-4" />
           </button>
-          <div className="ml-auto text-[11px] text-slate-400 dark:text-zinc-500 font-mono">
-            {wordsCount} palabras · {charsCount} caracteres
+
+          <div className="ml-auto text-xs text-stone-500 dark:text-stone-400 tabular-nums pl-2 shrink-0">
+            {wordsCount} {wordsCount === 1 ? 'palabra' : 'palabras'} · {charsCount} caract.
           </div>
         </div>
 
-        {/* Note Content Textarea */}
-        <textarea
-          ref={textareaRef}
-          value={content}
-          onChange={(e) => handleContentChange(e.target.value)}
-          onSelect={handleSelectText}
-          onMouseUp={handleSelectText}
-          onKeyUp={handleSelectText}
-          placeholder="Escribe aquí tus apuntes académicos, ideas de clase, conceptos teóricos o fragmentos de lectura..."
-          rows={18}
-          className="w-full bg-transparent text-slate-900 dark:text-zinc-100 placeholder:text-slate-400 dark:placeholder:text-zinc-600 text-sm leading-relaxed resize-none focus:outline-none focus:ring-0 font-sans"
-        />
+        {/* 3. Main Note Content Textarea */}
+        <div>
+          <label htmlFor="note-content-textarea" className="sr-only">
+            Contenido del apunte
+          </label>
+          <textarea
+            id="note-content-textarea"
+            ref={textareaRef}
+            value={content}
+            onChange={(e) => handleContentChange(e.target.value)}
+            onSelect={handleSelectText}
+            onMouseUp={handleSelectText}
+            onKeyUp={handleSelectText}
+            placeholder="Escribe tus apuntes de clase, definiciones de autores, observaciones clínicas o fragmentos de lectura. También puedes seleccionar un párrafo específico para extraer sus conceptos…"
+            rows={20}
+            className="w-full min-h-[55vh] bg-transparent text-stone-900 dark:text-stone-100 placeholder:text-stone-400 dark:placeholder:text-stone-600 text-base leading-relaxed resize-y focus:outline-none focus:ring-0 font-sans"
+          />
+        </div>
       </div>
 
-      {/* Confirm Delete Dialog */}
+      {/* Confirm Delete AlertDialog */}
       {showConfirmDelete && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
-          <div className="w-full max-w-sm rounded-3xl bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 p-6 shadow-2xl">
-            <h3 className="text-base font-bold text-slate-900 dark:text-zinc-100">
+        <div
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-xs p-0 sm:p-4"
+          onClick={() => setShowConfirmDelete(false)}
+        >
+          <div
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="delete-note-title"
+            aria-describedby="delete-note-desc"
+            onClick={(e) => e.stopPropagation()}
+            className="w-full sm:max-w-md rounded-t-3xl sm:rounded-2xl bg-white dark:bg-stone-900 border-t sm:border border-stone-200 dark:border-stone-800 p-5 sm:p-6 shadow-2xl safe-area-bottom"
+          >
+            <h2
+              id="delete-note-title"
+              className="text-base font-bold text-stone-900 dark:text-stone-100"
+            >
               ¿Eliminar este apunte?
-            </h3>
-            <p className="text-xs text-slate-500 dark:text-zinc-400 mt-2 mb-5">
-              Esta acción eliminará permanentemente la nota "{title}" de la base de datos local. Los conceptos guardados en el glosario se conservarán.
+            </h2>
+            <p
+              id="delete-note-desc"
+              className="text-sm text-stone-600 dark:text-stone-400 mt-2 mb-6 leading-relaxed"
+            >
+              Se eliminará permanentemente «{title || 'Apunte sin título'}» de este dispositivo. Los conceptos que ya hayas guardado en tu glosario se conservarán.
             </p>
-            <div className="flex items-center justify-end gap-2">
+            <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-end gap-2.5">
               <button
+                type="button"
                 onClick={() => setShowConfirmDelete(false)}
-                className="px-4 py-2 text-xs font-medium rounded-xl text-slate-600 dark:text-zinc-400 hover:bg-slate-100 dark:hover:bg-zinc-800 transition"
+                className="min-h-[44px] px-4 py-2.5 text-sm font-medium rounded-xl text-stone-700 dark:text-stone-300 bg-stone-100 dark:bg-stone-800 hover:bg-stone-200 dark:hover:bg-stone-700 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600"
               >
                 Cancelar
               </button>
               <button
+                type="button"
                 onClick={async () => {
                   setShowConfirmDelete(false);
                   await deleteNote(note.id);
                   onBack();
                 }}
-                className="px-4 py-2 text-xs font-semibold rounded-xl bg-red-600 text-white hover:bg-red-700 transition"
+                className="min-h-[44px] px-4 py-2.5 text-sm font-semibold rounded-xl bg-red-600 text-white hover:bg-red-700 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600"
               >
                 Eliminar apunte
               </button>

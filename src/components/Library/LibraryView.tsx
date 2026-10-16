@@ -1,23 +1,15 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
-import { DocumentEntity, DocumentPage } from '../../types/models';
+import { DocumentEntity } from '../../types/models';
 import { processDocumentFile } from '../../utils/documentExtractor';
 import {
   FolderArchive,
   UploadCloud,
-  FileText,
   Trash2,
-  Sparkles,
-  Calendar,
   Layers,
-  ChevronRight,
-  Eye,
-  CheckCircle2,
   Scan,
-  Filter,
   Check,
-  AlertCircle,
-  FileSpreadsheet,
+  Loader2,
 } from 'lucide-react';
 
 export const LibraryView: React.FC<{
@@ -32,6 +24,18 @@ export const LibraryView: React.FC<{
   const [isProcessing, setIsProcessing] = useState(false);
   const [processingStatus, setProcessingStatus] = useState<string>('');
 
+  // Close document modal on Escape
+  useEffect(() => {
+    if (!selectedDoc) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setSelectedDoc(null);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedDoc]);
+
   // Handle native file selection for PDF, PPTX, PPT, TXT, MD
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -39,7 +43,7 @@ export const LibraryView: React.FC<{
 
     const file = files[0];
     setIsProcessing(true);
-    setProcessingStatus(`Analizando ${file.name}...`);
+    setProcessingStatus(`Procesando ${file.name}…`);
 
     try {
       // Process file 100% locally on the device (no remote upload)
@@ -124,107 +128,141 @@ export const LibraryView: React.FC<{
   };
 
   return (
-    <div className="max-w-xl mx-auto px-4 pb-28 pt-2 space-y-5">
-      {/* Upload Banner */}
-      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-indigo-600 via-indigo-700 to-violet-800 text-white p-5 shadow-lg">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <div className="flex items-center gap-1.5 mb-1">
-              <span className="text-[11px] uppercase font-bold tracking-wider text-indigo-200">
-                Almacenamiento Local Seguro
-              </span>
+    <div className="max-w-5xl mx-auto px-4 sm:px-6 pb-28 md:pb-16 pt-3 space-y-6">
+      {/* Editorial Document Import Card */}
+      <section
+        aria-labelledby="library-import-heading"
+        className="bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 rounded-2xl p-5 sm:p-6 shadow-2xs"
+      >
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-5">
+          <div className="space-y-1.5 max-w-2xl">
+            <div className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-indigo-600 dark:text-indigo-400">
+              <FolderArchive className="w-3.5 h-3.5" />
+              <span>Procesamiento 100 % en el dispositivo</span>
             </div>
-            <h3 className="text-base font-bold tracking-tight">
-              Biblioteca de PDFs y Presentaciones PPTX
-            </h3>
-            <p className="text-xs text-indigo-100/90 mt-1 max-w-sm leading-relaxed">
-              Extracción local de páginas, diapositivas, textos escaneados con OCR y vinculación de conceptos a la página de origen.
+            <h2
+              id="library-import-heading"
+              className="text-lg sm:text-xl font-bold text-stone-900 dark:text-stone-100 tracking-tight"
+            >
+              Biblioteca de lecturas PDF y presentaciones PPTX
+            </h2>
+            <p className="text-sm text-stone-600 dark:text-stone-400 leading-relaxed">
+              Importa capítulos de libros, artículos o diapositivas de clase. El texto se extrae localmente (con reconocimiento óptico OCR en páginas escaneadas) y cada concepto queda vinculado a su página o diapositiva de origen.
             </p>
           </div>
-          <div className="p-2.5 rounded-2xl bg-white/10 backdrop-blur-xs shrink-0">
-            <FolderArchive className="w-6 h-6 text-white" />
+
+          <div className="shrink-0 flex flex-col sm:flex-row md:flex-col items-stretch sm:items-center md:items-end gap-2">
+            <label
+              className={`inline-flex items-center justify-center gap-2 min-h-[44px] px-5 py-2.5 rounded-xl font-semibold text-sm transition-colors shadow-2xs focus-within:ring-2 focus-within:ring-indigo-600 focus-within:ring-offset-2 ${
+                isProcessing
+                  ? 'bg-stone-200 dark:bg-stone-800 text-stone-700 dark:text-stone-300 cursor-wait'
+                  : 'bg-indigo-600 hover:bg-indigo-700 text-white cursor-pointer'
+              }`}
+            >
+              {isProcessing ? (
+                <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+              ) : (
+                <UploadCloud className="w-4 h-4 shrink-0" />
+              )}
+              <span>{isProcessing ? 'Procesando archivo…' : 'Importar documento'}</span>
+              <input
+                type="file"
+                accept=".pdf,.pptx,.ppt,.txt,.md"
+                onChange={handleFileUpload}
+                disabled={isProcessing}
+                className="sr-only"
+              />
+            </label>
+            <span className="text-[11px] text-stone-500 dark:text-stone-400 text-center md:text-right">
+              Formatos admitidos: PDF, PPTX, TXT, MD
+            </span>
           </div>
         </div>
 
-        {/* File Input */}
-        <div className="mt-4 pt-3 border-t border-white/15 flex items-center justify-between flex-wrap gap-2">
-          <label className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white text-indigo-700 font-bold text-xs cursor-pointer hover:bg-indigo-50 transition shadow-sm active:scale-95">
-            <UploadCloud className="w-4 h-4" />
-            <span>{isProcessing ? processingStatus || 'Extrayendo...' : 'Importar PDF / PPTX'}</span>
-            <input
-              type="file"
-              accept=".pdf,.pptx,.ppt,.txt,.md"
-              onChange={handleFileUpload}
-              disabled={isProcessing}
-              className="hidden"
-            />
-          </label>
-
-          <span className="text-[11px] text-indigo-200">
-            Los archivos permanecen en el teléfono
-          </span>
-        </div>
-      </div>
+        {isProcessing && processingStatus && (
+          <div
+            role="status"
+            aria-live="polite"
+            className="mt-4 pt-3.5 border-t border-stone-200 dark:border-stone-800 flex items-center gap-2.5 text-xs font-medium text-indigo-600 dark:text-indigo-400"
+          >
+            <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+            <span>{processingStatus}</span>
+          </div>
+        )}
+      </section>
 
       {/* Document List */}
-      <div>
-        <div className="flex items-center justify-between mb-3">
-          <h4 className="font-bold text-xs text-slate-500 dark:text-zinc-400 uppercase tracking-wider">
-            Documentos en dispositivo ({documents.length})
-          </h4>
+      <section aria-labelledby="library-documents-heading">
+        <div className="flex items-center justify-between mb-3.5">
+          <h3
+            id="library-documents-heading"
+            className="font-semibold text-xs text-stone-600 dark:text-stone-400 uppercase tracking-wider"
+          >
+            Documentos guardados ({documents.length})
+          </h3>
         </div>
 
         {documents.length === 0 ? (
-          <div className="flex flex-col items-center justify-center text-center py-14 px-4 bg-white dark:bg-zinc-900 border border-slate-200/80 dark:border-zinc-800/80 rounded-3xl">
-            <div className="w-14 h-14 rounded-2xl bg-indigo-50 dark:bg-indigo-950/50 flex items-center justify-center text-indigo-600 dark:text-indigo-400 mb-3 shadow-inner">
-              <FolderArchive className="w-7 h-7 stroke-[1.8]" />
+          <div className="bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 rounded-2xl p-8 sm:p-12 text-center max-w-lg mx-auto my-4">
+            <div className="w-12 h-12 rounded-2xl bg-stone-100 dark:bg-stone-800 flex items-center justify-center text-stone-700 dark:text-stone-300 mx-auto mb-4">
+              <FolderArchive className="w-6 h-6 stroke-[1.75]" />
             </div>
-            <h5 className="font-bold text-sm text-slate-900 dark:text-zinc-100">
-              No hay lecturas ni diapositivas importadas
-            </h5>
-            <p className="text-xs text-slate-500 dark:text-zinc-400 max-w-xs mt-1 mb-4">
-              Usa el botón de arriba para importar un archivo PDF o una presentación PPTX del curso.
+            <h4 className="font-bold text-base text-stone-900 dark:text-stone-100">
+              Aún no has importado lecturas ni presentaciones
+            </h4>
+            <p className="text-sm text-stone-600 dark:text-stone-400 mt-1.5 leading-relaxed">
+              Usa el botón «Importar documento» de arriba para cargar archivos PDF o PPTX de tus asignaturas y analizar sus páginas por intervalos.
             </p>
           </div>
         ) : (
-          <div className="space-y-3">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5 sm:gap-4">
             {documents.map((doc) => {
               const conceptsCount = countConceptsForDoc(doc.id);
               const isPPT = doc.fileType === 'pptx' || doc.fileType === 'ppt';
               const hasOCR = doc.pages.some((p) => p.hasOCR);
 
               return (
-                <div
+                <article
                   key={doc.id}
                   onClick={() => handleOpenDoc(doc)}
-                  className="group flex items-center justify-between gap-3 p-4 rounded-2xl bg-white dark:bg-zinc-900 border border-slate-200/80 dark:border-zinc-800/80 hover:border-indigo-400 dark:hover:border-indigo-600 cursor-pointer transition shadow-xs"
+                  className="group flex flex-col justify-between gap-4 p-4 sm:p-5 rounded-2xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 hover:border-stone-300 dark:hover:border-stone-700 cursor-pointer transition-colors shadow-2xs"
                 >
-                  <div className="flex items-center gap-3 min-w-0">
+                  <div className="flex items-start gap-3.5 min-w-0">
                     <div
-                      className={`w-11 h-11 rounded-2xl flex flex-col items-center justify-center font-bold text-[10px] shrink-0 uppercase shadow-xs ${
+                      className={`w-11 h-11 rounded-xl flex items-center justify-center font-bold text-[11px] shrink-0 uppercase border ${
                         isPPT
-                          ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/80 dark:text-amber-300'
+                          ? 'bg-amber-50 text-amber-800 border-amber-200/70 dark:bg-amber-950/50 dark:text-amber-300 dark:border-amber-800/50'
                           : doc.fileType === 'pdf'
-                          ? 'bg-red-100 text-red-800 dark:bg-red-950/80 dark:text-red-300'
-                          : 'bg-indigo-100 text-indigo-800 dark:bg-indigo-950/80 dark:text-indigo-300'
+                          ? 'bg-red-50 text-red-800 border-red-200/70 dark:bg-red-950/50 dark:text-red-300 dark:border-red-800/50'
+                          : 'bg-stone-100 text-stone-800 border-stone-200 dark:bg-stone-800 dark:text-stone-300 dark:border-stone-700'
                       }`}
                     >
                       <span>{doc.fileType}</span>
                     </div>
 
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        <h5 className="font-bold text-sm text-slate-900 dark:text-zinc-100 line-clamp-1">
-                          {doc.fileName}
-                        </h5>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <h4 className="font-bold text-base text-stone-900 dark:text-stone-100 line-clamp-1 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleOpenDoc(doc);
+                            }}
+                            className="text-left truncate max-w-full focus-visible:outline-none focus-visible:underline"
+                          >
+                            {doc.fileName}
+                          </button>
+                        </h4>
                         {hasOCR && (
-                          <span className="text-[10px] font-semibold px-1.5 py-0.2 rounded bg-violet-100 text-violet-700 dark:bg-violet-950 dark:text-violet-300 flex items-center gap-0.5">
-                            <Scan className="w-2.5 h-2.5" /> OCR
+                          <span className="text-[11px] font-medium px-2 py-0.5 rounded-md bg-stone-100 text-stone-700 dark:bg-stone-800 dark:text-stone-300 inline-flex items-center gap-1">
+                            <Scan className="w-3 h-3" />
+                            <span>OCR</span>
                           </span>
                         )}
                       </div>
 
-                      <div className="flex items-center gap-2 text-[11px] text-slate-400 dark:text-zinc-500 mt-1">
+                      <div className="flex items-center gap-2 flex-wrap text-xs text-stone-500 dark:text-stone-400 mt-1">
                         <span>
                           {doc.pageCount} {isPPT ? 'diapositivas' : 'páginas'}
                         </span>
@@ -232,133 +270,168 @@ export const LibraryView: React.FC<{
                         <span>{formatFileSize(doc.fileSize)}</span>
                         <span>·</span>
                         <span>{new Date(doc.createdAt).toLocaleDateString('es-ES')}</span>
-                        {conceptsCount > 0 && (
-                          <>
-                            <span>·</span>
-                            <span className="text-indigo-600 dark:text-indigo-400 font-semibold">
-                              {conceptsCount} conceptos
-                            </span>
-                          </>
-                        )}
                       </div>
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-2 shrink-0">
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleOpenDoc(doc);
-                      }}
-                      className="p-2 rounded-xl text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/60 transition"
-                      title="Abrir y seleccionar páginas"
-                    >
-                      <Sparkles className="w-4 h-4" />
-                    </button>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        deleteDocument(doc.id);
-                      }}
-                      className="p-2 rounded-xl text-slate-400 hover:text-red-500 transition"
-                      title="Eliminar documento"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                    <ChevronRight className="w-4 h-4 text-slate-400" />
+                  <div className="flex items-center justify-between gap-2 pt-3 border-t border-stone-100 dark:border-stone-800/80">
+                    <span className="text-xs font-medium text-stone-600 dark:text-stone-400">
+                      {conceptsCount > 0
+                        ? `${conceptsCount} ${
+                            conceptsCount === 1 ? 'concepto en glosario' : 'conceptos en glosario'
+                          }`
+                        : 'Sin conceptos extraídos aún'}
+                    </span>
+
+                    <div className="flex items-center gap-1 shrink-0 -mr-1">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          deleteDocument(doc.id);
+                        }}
+                        aria-label={`Eliminar documento ${doc.fileName}`}
+                        className="inline-flex items-center justify-center min-w-[36px] min-h-[36px] rounded-lg text-stone-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600"
+                        title="Eliminar documento"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleOpenDoc(doc);
+                        }}
+                        className="inline-flex items-center gap-1.5 min-h-[36px] px-3 py-1.5 rounded-lg text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600"
+                      >
+                        <Layers className="w-3.5 h-3.5" />
+                        <span>Seleccionar páginas</span>
+                      </button>
+                    </div>
                   </div>
-                </div>
+                </article>
               );
             })}
           </div>
         )}
-      </div>
+      </section>
 
-      {/* Document Reader & Interval Selection Modal */}
+      {/* Document Reader & Interval Selection Modal / Bottom Sheet */}
       {selectedDoc && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-3 sm:p-5">
-          <div className="w-full max-w-xl max-h-[92vh] flex flex-col bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-3xl shadow-2xl overflow-hidden animate-scaleIn">
+        <div
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-xs p-0 sm:p-4"
+          onClick={() => setSelectedDoc(null)}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="doc-reader-dialog-title"
+            onClick={(e) => e.stopPropagation()}
+            className="w-full sm:max-w-2xl max-h-[92vh] sm:max-h-[88vh] flex flex-col bg-white dark:bg-stone-900 border-t sm:border border-stone-200 dark:border-stone-800 rounded-t-3xl sm:rounded-2xl shadow-2xl overflow-hidden safe-area-bottom"
+          >
             {/* Modal Header */}
-            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-950/40 shrink-0">
+            <div className="flex items-start justify-between gap-3 px-5 py-4 border-b border-stone-200 dark:border-stone-800 bg-stone-50/70 dark:bg-stone-950/50 shrink-0">
               <div className="min-w-0 pr-2">
                 <div className="flex items-center gap-2">
-                  <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300">
+                  <span className="text-[11px] uppercase font-bold px-2 py-0.5 rounded-md bg-stone-200/80 dark:bg-stone-800 text-stone-700 dark:text-stone-300">
                     {selectedDoc.fileType}
                   </span>
-                  <h3 className="font-bold text-sm text-slate-900 dark:text-zinc-100 truncate">
+                  <h3
+                    id="doc-reader-dialog-title"
+                    className="font-bold text-base text-stone-900 dark:text-stone-100 truncate"
+                  >
                     {selectedDoc.fileName}
                   </h3>
                 </div>
-                <p className="text-[11px] text-slate-500 dark:text-zinc-400 mt-0.5">
-                  Total: {selectedDoc.pageCount} {selectedDoc.fileType === 'pptx' ? 'diapositivas' : 'páginas'} · Seleccionadas: {selectedPages.length}
+                <p className="text-xs text-stone-500 dark:text-stone-400 mt-1">
+                  Total: {selectedDoc.pageCount}{' '}
+                  {selectedDoc.fileType === 'pptx' ? 'diapositivas' : 'páginas'} · Seleccionadas para análisis:{' '}
+                  <strong className="text-stone-800 dark:text-stone-200">
+                    {selectedPages.length}
+                  </strong>
                 </p>
               </div>
 
               <div className="flex items-center gap-2 shrink-0">
                 <button
+                  type="button"
+                  onClick={() => setSelectedDoc(null)}
+                  className="min-h-[40px] px-3.5 py-1.5 text-xs font-semibold rounded-xl bg-stone-100 dark:bg-stone-800 hover:bg-stone-200 dark:hover:bg-stone-700 text-stone-700 dark:text-stone-200 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600"
+                >
+                  Cerrar
+                </button>
+                <button
+                  type="button"
                   onClick={() => {
                     onAnalyzeDocument(selectedDoc, selectedPages);
                     setSelectedDoc(null);
                   }}
                   disabled={selectedPages.length === 0}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-semibold text-xs transition shadow-xs"
+                  className="inline-flex items-center gap-1.5 min-h-[40px] px-3.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white font-semibold text-xs transition-colors shadow-2xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600"
                 >
-                  <Sparkles className="w-3.5 h-3.5" />
+                  <Layers className="w-3.5 h-3.5" />
                   <span>Analizar ({selectedPages.length})</span>
-                </button>
-                <button
-                  onClick={() => setSelectedDoc(null)}
-                  className="px-2.5 py-1 text-xs font-semibold rounded-xl bg-slate-100 dark:bg-zinc-800 text-slate-700 dark:text-zinc-300"
-                >
-                  Cerrar
                 </button>
               </div>
             </div>
 
             {/* Range Configuration Panel */}
-            <div className="px-5 py-3 border-b border-slate-100 dark:border-zinc-800 bg-slate-50/80 dark:bg-zinc-950/50 text-xs flex items-center justify-between flex-wrap gap-2 shrink-0">
-              <div className="flex items-center gap-2">
-                <span className="font-semibold text-slate-600 dark:text-zinc-400">
+            <div className="px-5 py-3 border-b border-stone-200 dark:border-stone-800 bg-stone-50 dark:bg-stone-950/60 text-xs flex items-center justify-between flex-wrap gap-3 shrink-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <label
+                  htmlFor="doc-range-start"
+                  className="font-semibold text-stone-700 dark:text-stone-300"
+                >
                   Intervalo:
-                </span>
-                <div className="flex items-center gap-1">
+                </label>
+                <div className="flex items-center gap-1.5">
                   <input
+                    id="doc-range-start"
                     type="number"
                     min={1}
                     max={selectedDoc.pageCount}
                     value={rangeStart}
                     onChange={(e) => setRangeStart(parseInt(e.target.value) || 1)}
-                    className="w-12 px-2 py-1 rounded-lg bg-white dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 text-center font-bold"
+                    aria-label="Página inicial"
+                    className="w-16 min-h-[36px] px-2 py-1 rounded-lg bg-white dark:bg-stone-900 border border-stone-300 dark:border-stone-700 text-center text-base sm:text-xs font-semibold text-stone-900 dark:text-stone-100 focus:outline-none focus:ring-2 focus:ring-indigo-600"
                   />
-                  <span className="text-slate-400">a</span>
+                  <span className="text-stone-500">a</span>
                   <input
+                    id="doc-range-end"
                     type="number"
                     min={1}
                     max={selectedDoc.pageCount}
                     value={rangeEnd}
-                    onChange={(e) => setRangeEnd(parseInt(e.target.value) || selectedDoc.pageCount)}
-                    className="w-12 px-2 py-1 rounded-lg bg-white dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 text-center font-bold"
+                    onChange={(e) =>
+                      setRangeEnd(parseInt(e.target.value) || selectedDoc.pageCount)
+                    }
+                    aria-label="Página final"
+                    className="w-16 min-h-[36px] px-2 py-1 rounded-lg bg-white dark:bg-stone-900 border border-stone-300 dark:border-stone-700 text-center text-base sm:text-xs font-semibold text-stone-900 dark:text-stone-100 focus:outline-none focus:ring-2 focus:ring-indigo-600"
                   />
                 </div>
                 <button
+                  type="button"
                   onClick={applyRangeFilter}
-                  className="px-2.5 py-1 rounded-lg bg-slate-200 dark:bg-zinc-800 font-semibold text-[11px] hover:bg-slate-300 transition"
+                  className="min-h-[36px] px-3 py-1 rounded-lg bg-stone-200 dark:bg-stone-800 hover:bg-stone-300 dark:hover:bg-stone-700 text-stone-800 dark:text-stone-200 font-semibold text-xs transition-colors"
                 >
-                  Aplicar
+                  Aplicar rango
                 </button>
               </div>
 
-              <div className="flex items-center gap-2 text-[11px]">
+              <div className="flex items-center gap-2 text-xs">
                 <button
+                  type="button"
                   onClick={() => setSelectedPages(selectedDoc.pages.map((p) => p.pageNumber))}
-                  className="text-indigo-600 dark:text-indigo-400 font-medium hover:underline"
+                  className="min-h-[34px] px-2 text-indigo-600 dark:text-indigo-400 font-semibold hover:underline"
                 >
                   Todas ({selectedDoc.pageCount})
                 </button>
-                <span>·</span>
+                <span className="text-stone-300 dark:text-stone-700">|</span>
                 <button
+                  type="button"
                   onClick={() => setSelectedPages([])}
-                  className="text-slate-500 hover:underline"
+                  className="min-h-[34px] px-2 text-stone-600 dark:text-stone-400 font-medium hover:underline"
                 >
                   Ninguna
                 </button>
@@ -366,7 +439,7 @@ export const LibraryView: React.FC<{
             </div>
 
             {/* Pages / Slides Scrollable List */}
-            <div className="flex-1 overflow-y-auto p-5 space-y-3">
+            <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-3">
               {selectedDoc.pages.map((p) => {
                 const isSelected = selectedPages.includes(p.pageNumber);
                 const isPPT = selectedDoc.fileType === 'pptx' || selectedDoc.fileType === 'ppt';
@@ -374,30 +447,49 @@ export const LibraryView: React.FC<{
                 return (
                   <div
                     key={p.pageNumber}
+                    role="checkbox"
+                    aria-checked={isSelected}
+                    tabIndex={0}
                     onClick={() => togglePageSelection(p.pageNumber)}
-                    className={`p-3.5 rounded-2xl border transition-all cursor-pointer ${
+                    onKeyDown={(e) => {
+                      if (e.key === ' ' || e.key === 'Enter') {
+                        e.preventDefault();
+                        togglePageSelection(p.pageNumber);
+                      }
+                    }}
+                    className={`p-4 rounded-xl border transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600 ${
                       isSelected
-                        ? 'bg-indigo-50/50 dark:bg-indigo-950/30 border-indigo-300 dark:border-indigo-800'
-                        : 'bg-slate-50/50 dark:bg-zinc-950/50 border-slate-200 dark:border-zinc-800 opacity-60'
+                        ? 'bg-indigo-50/40 dark:bg-indigo-950/30 border-indigo-300 dark:border-indigo-800'
+                        : 'bg-stone-50/60 dark:bg-stone-950/50 border-stone-200 dark:border-stone-800 opacity-75 hover:opacity-100'
                     }`}
                   >
-                    <div className="flex items-center justify-between gap-2 mb-1.5">
-                      <div className="flex items-center gap-2">
-                        <span className="font-bold text-xs text-slate-900 dark:text-zinc-100">
+                    <div className="flex items-center justify-between gap-2 mb-2">
+                      <div className="flex items-center gap-2.5">
+                        <span
+                          className={`w-5 h-5 rounded-md flex items-center justify-center border transition-colors ${
+                            isSelected
+                              ? 'bg-indigo-600 border-indigo-600 text-white'
+                              : 'bg-white dark:bg-stone-900 border-stone-300 dark:border-stone-700'
+                          }`}
+                        >
+                          {isSelected && <Check className="w-3.5 h-3.5 stroke-[2.5]" />}
+                        </span>
+                        <span className="font-bold text-xs text-stone-900 dark:text-stone-100">
                           {isPPT ? 'Diapositiva' : 'Página'} {p.pageNumber}
                         </span>
                         {p.hasOCR && (
-                          <span className="text-[10px] font-semibold px-2 py-0.2 rounded-full bg-violet-100 text-violet-800 dark:bg-violet-950 dark:text-violet-300 flex items-center gap-1">
-                            <Scan className="w-3 h-3" /> OCR local
+                          <span className="text-[11px] font-medium px-2 py-0.5 rounded-md bg-stone-200/80 text-stone-800 dark:bg-stone-800 dark:text-stone-300 inline-flex items-center gap-1">
+                            <Scan className="w-3 h-3" />
+                            <span>OCR local</span>
                           </span>
                         )}
                       </div>
-                      <span className="text-[10px] text-slate-400">
-                        {p.content.length} caracteres
+                      <span className="text-xs text-stone-500 dark:text-stone-400 tabular-nums">
+                        {p.content.length} caract.
                       </span>
                     </div>
 
-                    <p className="text-xs text-slate-600 dark:text-zinc-400 line-clamp-3 leading-relaxed font-sans">
+                    <p className="text-xs text-stone-600 dark:text-stone-400 line-clamp-3 leading-relaxed font-sans pl-7">
                       {p.content}
                     </p>
                   </div>

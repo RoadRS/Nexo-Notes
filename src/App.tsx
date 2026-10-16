@@ -69,12 +69,20 @@ const MainAppContent: React.FC = () => {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50 dark:bg-zinc-950 text-slate-800 dark:text-zinc-200">
-        <div className="mb-3 shadow-lg animate-pulse">
-          <PsychologyLogo size={36} showBadge={true} className="w-14 h-14 rounded-2xl" />
+      <div
+        role="status"
+        aria-live="polite"
+        className="min-h-screen flex flex-col items-center justify-center bg-stone-50 dark:bg-stone-950 text-stone-800 dark:text-stone-200 px-4"
+      >
+        <div className="mb-3">
+          <PsychologyLogo size={32} showBadge={true} className="w-12 h-12 rounded-xl" />
         </div>
-        <p className="text-sm font-bold tracking-tight">Cargando Nexo Notes...</p>
-        <p className="text-xs text-slate-400 mt-1">Conectando base de datos local Room</p>
+        <p className="text-sm font-semibold tracking-tight text-stone-900 dark:text-stone-100">
+          Abriendo tu espacio de estudio…
+        </p>
+        <p className="text-xs text-stone-600 dark:text-stone-400 mt-1">
+          Cargando apuntes y glosario guardados en este dispositivo
+        </p>
       </div>
     );
   }
@@ -83,6 +91,19 @@ const MainAppContent: React.FC = () => {
   if (activeNote) {
     return (
       <>
+        {notification && (
+          <div
+            role={notification.type === 'error' ? 'alert' : 'status'}
+            aria-live={notification.type === 'error' ? 'assertive' : 'polite'}
+            className="fixed top-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2.5 px-4 py-2.5 rounded-xl shadow-md text-xs font-medium animate-fadeIn bg-stone-900 text-stone-50 dark:bg-stone-100 dark:text-stone-900 border border-stone-700 dark:border-stone-300 max-w-[92vw]"
+          >
+            {notification.type === 'success' && <CheckCircle2 className="w-4 h-4 text-emerald-400 dark:text-emerald-600 shrink-0" />}
+            {notification.type === 'error' && <AlertCircle className="w-4 h-4 text-red-400 dark:text-red-600 shrink-0" />}
+            {notification.type === 'info' && <Info className="w-4 h-4 text-indigo-400 dark:text-indigo-600 shrink-0" />}
+            <span className="leading-snug">{notification.message}</span>
+          </div>
+        )}
+
         <NoteEditor
           note={activeNote}
           onBack={() => setActiveNote(null)}
@@ -104,22 +125,26 @@ const MainAppContent: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-zinc-950 text-slate-900 dark:text-zinc-100 flex flex-col transition-colors selection:bg-indigo-500/20 selection:text-indigo-600">
+    <div className="min-h-screen bg-stone-50 dark:bg-stone-950 text-stone-900 dark:text-stone-100 flex flex-col transition-colors selection:bg-indigo-600/15 selection:text-indigo-700 dark:selection:bg-indigo-400/20 dark:selection:text-indigo-200">
       {/* Toast Notification */}
       {notification && (
-        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 px-4 py-2.5 rounded-2xl shadow-xl text-xs font-semibold backdrop-blur-md animate-fadeIn bg-slate-900/90 text-white dark:bg-white/90 dark:text-zinc-900 border border-slate-700/50">
-          {notification.type === 'success' && <CheckCircle2 className="w-4 h-4 text-emerald-400" />}
-          {notification.type === 'error' && <AlertCircle className="w-4 h-4 text-red-400" />}
-          {notification.type === 'info' && <Info className="w-4 h-4 text-indigo-400" />}
-          <span>{notification.message}</span>
+        <div
+          role={notification.type === 'error' ? 'alert' : 'status'}
+          aria-live={notification.type === 'error' ? 'assertive' : 'polite'}
+          className="fixed top-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2.5 px-4 py-2.5 rounded-xl shadow-md text-xs font-medium animate-fadeIn bg-stone-900 text-stone-50 dark:bg-stone-100 dark:text-stone-900 border border-stone-700 dark:border-stone-300 max-w-[92vw]"
+        >
+          {notification.type === 'success' && <CheckCircle2 className="w-4 h-4 text-emerald-400 dark:text-emerald-600 shrink-0" />}
+          {notification.type === 'error' && <AlertCircle className="w-4 h-4 text-red-400 dark:text-red-600 shrink-0" />}
+          {notification.type === 'info' && <Info className="w-4 h-4 text-indigo-400 dark:text-indigo-600 shrink-0" />}
+          <span className="leading-snug">{notification.message}</span>
         </div>
       )}
 
-      {/* Top Samsung One UI Header */}
+      {/* Top Header & Navigation */}
       <OneUIHeader />
 
       {/* Main Body per Active Tab */}
-      <main className="flex-1">
+      <main className="flex-1 w-full">
         {activeTab === 'notes' && (
           <NotesList onAnalyzeNote={(note) => handleLaunchAnalysis(note)} />
         )}
@@ -137,19 +162,19 @@ const MainAppContent: React.FC = () => {
         )}
       </main>
 
-      {/* Bottom Navigation */}
+      {/* Bottom Navigation (Mobile-first) */}
       <BottomNav />
 
       {/* Concept Analysis Modal */}
       {isAnalysisModalOpen && (
-          <ConceptAnalysisModal
-            note={analysisNote}
-            initialText={analysisCustomText || undefined}
-            sourceDocId={analysisDocSource?.docId}
-            sourceDocName={analysisDocSource?.docName}
-            sourcePageMap={analysisDocSource?.pageMap}
-            onClose={() => setIsAnalysisModalOpen(false)}
-          />
+        <ConceptAnalysisModal
+          note={analysisNote}
+          initialText={analysisCustomText || undefined}
+          sourceDocId={analysisDocSource?.docId}
+          sourceDocName={analysisDocSource?.docName}
+          sourcePageMap={analysisDocSource?.pageMap}
+          onClose={() => setIsAnalysisModalOpen(false)}
+        />
       )}
 
       {/* Android Native Architecture Modal */}

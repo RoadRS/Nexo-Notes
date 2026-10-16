@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState, useMemo } from 'react';
+import React, { createContext, useContext, useEffect, useState, useMemo, useRef, useCallback } from 'react';
 import {
   NoteEntity,
   FolderEntity,
@@ -82,13 +82,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [aiAvailable, setAiAvailable] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [notification, setNotification] = useState<{ message: string; type: 'info' | 'success' | 'error' } | null>(null);
+  const notificationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const showNotification = (message: string, type: 'info' | 'success' | 'error' = 'info') => {
+  const showNotification = useCallback((message: string, type: 'info' | 'success' | 'error' = 'info') => {
+    if (notificationTimeoutRef.current) {
+      clearTimeout(notificationTimeoutRef.current);
+    }
     setNotification({ message, type });
-    setTimeout(() => {
-      setNotification((curr) => (curr?.message === message ? null : curr));
+    notificationTimeoutRef.current = setTimeout(() => {
+      setNotification(null);
+      notificationTimeoutRef.current = null;
     }, 3800);
-  };
+  }, []);
 
   // Check online status and server AI availability
   useEffect(() => {
@@ -109,6 +114,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return () => {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
+      if (notificationTimeoutRef.current) {
+        clearTimeout(notificationTimeoutRef.current);
+      }
     };
   }, []);
 
@@ -287,23 +295,25 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const deleteFolder = async (id: string) => {
     await localDB.deleteFolder(id);
     setFolders((prev) => prev.filter((f) => f.id !== id));
+    setNotes((prev) => prev.map((n) => (n.folderId === id ? { ...n, folderId: undefined } : n)));
+    setActiveNote((prev) => (prev && prev.folderId === id ? { ...prev, folderId: undefined } : prev));
     if (selectedFolderId === id) setSelectedFolderId(null);
     showNotification('Carpeta eliminada.', 'info');
   };
 
   // Glossary actions
   const saveConcept = async (concept: ConceptEntity) => {
-    await localDB.saveConcept(concept);
+    const saved = await localDB.saveConcept(concept);
     setGlossary((prev) => {
-      const filtered = prev.filter((c) => c.id !== concept.id && c.normalizedName !== concept.normalizedName);
-      const next = [concept, ...filtered];
+      const filtered = prev.filter((c) => c.id !== saved.id && c.normalizedName !== saved.normalizedName);
+      const next = [saved, ...filtered];
       next.sort((a, b) => {
         if (a.isFavorite !== b.isFavorite) return a.isFavorite ? -1 : 1;
         return a.termName.localeCompare(b.termName);
       });
       return next;
     });
-    showNotification(`Concepto "${concept.termName}" guardado en el glosario.`, 'success');
+    showNotification(`Concepto "${saved.termName}" guardado en el glosario.`, 'success');
   };
 
   const saveMultipleConcepts = async (newConcepts: ConceptEntity[]) => {
@@ -323,9 +333,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const target = glossary.find((c) => c.id === id);
     if (!target) return;
     const updated = { ...target, isFavorite: !target.isFavorite };
-    await localDB.saveConcept(updated);
+    const saved = await localDB.saveConcept(updated);
     setGlossary((prev) => {
-      const updatedList = prev.map((c) => (c.id === id ? updated : c));
+      const updatedList = prev.map((c) => (c.id === id ? saved : c));
       updatedList.sort((a, b) => {
         if (a.isFavorite !== b.isFavorite) return a.isFavorite ? -1 : 1;
         return a.termName.localeCompare(b.termName);
@@ -407,56 +417,71 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
-  return (
-    <AppContext.Provider
-      value={{
-        notes,
-        folders,
-        glossary,
-        documents,
-        preferences,
-        activeNote,
-        activeTab,
-        searchQuery,
-        selectedFolderId,
-        selectedSubject,
-        isOnline,
-        aiAvailable,
-        isLoading,
-        notification,
+  const contextValue = useMemo<AppContextType>(
+    () => ({
+      notes,
+      folders,
+      glossary,
+      documents,
+      preferences,
+      activeNote,
+      activeTab,
+      searchQuery,
+      selectedFolderId,
+      selectedSubject,
+      isOnline,
+      aiAvailable,
+      isLoading,
+      notification,
 
-        setActiveTab,
-        setActiveNote,
-        setSearchQuery,
-        setSelectedFolderId,
-        setSelectedSubject,
+      setActiveTab,
+      setActiveNote,
+      setSearchQuery,
+      setSelectedFolderId,
+      setSelectedSubject,
 
-        createNote,
-        updateNote,
-        deleteNote,
-        togglePinNote,
+      createNote,
+      updateNote,
+      deleteNote,
+      togglePinNote,
 
-        createFolder,
-        deleteFolder,
+      createFolder,
+      deleteFolder,
 
-        saveConcept,
-        saveMultipleConcepts,
-        deleteConcept,
-        toggleFavoriteConcept,
+      saveConcept,
+      saveMultipleConcepts,
+      deleteConcept,
+      toggleFavoriteConcept,
 
-        saveDocument,
-        deleteDocument,
+      saveDocument,
+      deleteDocument,
 
-        updatePreferences,
-        exportBackupFile,
-        importBackupFile,
-        showNotification,
-        refreshData,
-      }}
-    >
-      {children}
-    </AppContext.Provider>
+      updatePreferences,
+      exportBackupFile,
+      importBackupFile,
+      showNotification,
+      refreshData,
+    }),
+    [
+      notes,
+      folders,
+      glossary,
+      documents,
+      preferences,
+      activeNote,
+      activeTab,
+      searchQuery,
+      selectedFolderId,
+      selectedSubject,
+      isOnline,
+      aiAvailable,
+      isLoading,
+      notification,
+      showNotification,
+    ]
   );
+
+  return <AppContext.Provider value={contextValue}>{children}</AppContext.Provider>;
 };
 
 export const useApp = () => {
