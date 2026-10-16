@@ -431,7 +431,7 @@ export const ConceptAnalysisModal: React.FC<{
 
     setStage('results');
 
-    if (note) {
+    if (note && !sourceDocId) {
       await updateNote({
         ...note,
         lastAnalyzedAt: Date.now(),
@@ -663,39 +663,56 @@ export const ConceptAnalysisModal: React.FC<{
   const selectedResultsCount = verifiedResults.filter((r) => r.selectedForBatch && !r.hasError).length;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-3 sm:p-5">
-      <div className="w-full max-w-xl max-h-[92vh] flex flex-col bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-3xl shadow-2xl overflow-hidden animate-scaleIn">
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-stone-950/60 p-0 sm:p-4">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="concept-analysis-modal-title"
+        aria-describedby="concept-analysis-modal-subtitle"
+        className="w-full max-w-2xl max-h-[94vh] sm:max-h-[90vh] flex flex-col bg-stone-50 dark:bg-stone-950 border-t sm:border border-stone-200 dark:border-stone-800 rounded-t-2xl sm:rounded-2xl shadow-xl overflow-hidden"
+      >
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-950/40 shrink-0">
-          <div className="flex items-center gap-2.5">
-            <div className="p-2 rounded-xl bg-indigo-100 dark:bg-indigo-950/70 text-indigo-600 dark:text-indigo-400">
-              <Sparkles className="w-5 h-5 stroke-[2.2]" />
+        <div className="flex items-center justify-between px-4 sm:px-6 py-3.5 border-b border-stone-200 dark:border-stone-800 bg-white dark:bg-stone-900 shrink-0">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="p-2 rounded-xl bg-stone-100 dark:bg-stone-800 text-indigo-700 dark:text-indigo-300 border border-stone-200/80 dark:border-stone-700 shrink-0">
+              <BookOpen className="w-5 h-5" />
             </div>
-            <div>
-              <h2 className="font-bold text-base text-slate-900 dark:text-zinc-50 leading-tight">
-                Análisis de Conceptos y Términos Técnicos
+            <div className="min-w-0">
+              <h2
+                id="concept-analysis-modal-title"
+                className="font-bold text-base sm:text-lg text-stone-900 dark:text-stone-100 leading-tight truncate"
+              >
+                Análisis de conceptos
               </h2>
-              <p className="text-[11px] text-slate-500 dark:text-zinc-400">
-                {noteTitle} {note?.subject ? `· #${note.subject}` : ''}
+              <p
+                id="concept-analysis-modal-subtitle"
+                className="text-xs text-stone-600 dark:text-stone-400 truncate mt-0.5"
+              >
+                {noteTitle} {note?.subject ? `· ${note.subject}` : ''}
               </p>
             </div>
           </div>
           <button
+            type="button"
             onClick={onClose}
-            className="p-1.5 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-zinc-200 hover:bg-slate-100 dark:hover:bg-zinc-800 transition"
+            aria-label="Cerrar análisis de conceptos"
+            className="min-h-[44px] min-w-[44px] -mr-1 inline-flex items-center justify-center rounded-xl text-stone-500 hover:text-stone-800 dark:text-stone-400 dark:hover:text-stone-100 hover:bg-stone-100 dark:hover:bg-stone-800 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600 focus-visible:ring-offset-2"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Modal Body with internal scrolling */}
-        <div className="flex-1 overflow-y-auto p-5 space-y-4">
+        <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-5">
           {errorMessage && (
-            <div className="flex items-start gap-2.5 p-3 rounded-2xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/50 text-xs text-red-700 dark:text-red-300">
-              <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
-              <div>
-                <p className="font-semibold">Ocurrió un error</p>
-                <p className="mt-0.5">{errorMessage}</p>
+            <div
+              role="alert"
+              className="flex items-start gap-3 p-3.5 rounded-xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/60 text-xs sm:text-sm text-red-800 dark:text-red-200"
+            >
+              <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-red-600 dark:text-red-400" />
+              <div className="space-y-0.5">
+                <p className="font-semibold">No se pudo completar el análisis</p>
+                <p className="text-red-700 dark:text-red-300 leading-relaxed">{errorMessage}</p>
               </div>
             </div>
           )}
@@ -703,64 +720,73 @@ export const ConceptAnalysisModal: React.FC<{
           {/* STAGE: PREVIEW */}
           {stage === 'preview' && (
             <div className="space-y-4">
-              <div className="p-3.5 rounded-2xl bg-indigo-50/60 dark:bg-indigo-950/30 border border-indigo-100 dark:border-indigo-900/40 text-xs text-indigo-950 dark:text-indigo-200 leading-relaxed">
-                <p className="font-semibold mb-1.5 flex items-center gap-1.5 text-indigo-700 dark:text-indigo-300">
-                  <Layers className="w-4 h-4" /> Niveles de consulta a tu elección
-                </p>
-                <div className="space-y-1.5 text-[11px]">
-                  <div className="flex items-start gap-1.5">
-                    <span className="font-bold text-indigo-600 dark:text-indigo-400">A. Contextual (Predeterminado):</span>
-                    <span>Definiciones académicas por IA basadas en el texto sin búsquedas web automáticas.</span>
-                  </div>
-                  <div className="flex items-start gap-1.5">
-                    <span className="font-bold text-indigo-600 dark:text-indigo-400">B. Buscar en Google:</span>
-                    <span>Enlaces y referencias reales de publicaciones y literatura universitaria.</span>
-                  </div>
-                  <div className="flex items-start gap-1.5">
-                    <span className="font-bold text-indigo-600 dark:text-indigo-400">C. Google Grounding:</span>
-                    <span>Verificación estricta contrastando afirmaciones contra fuentes web.</span>
-                  </div>
-                </div>
-              </div>
-
               {isAlreadyAnalyzed && (
-                <div className="flex items-center gap-2 p-3 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/50 text-xs text-amber-800 dark:text-amber-200">
-                  <CheckCircle2 className="w-4 h-4 text-amber-600 shrink-0" />
+                <div
+                  role="status"
+                  className="flex items-start gap-2.5 p-3.5 rounded-xl bg-amber-50/80 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900/60 text-xs text-amber-900 dark:text-amber-200 leading-relaxed"
+                >
+                  <CheckCircle2 className="w-4 h-4 text-amber-700 dark:text-amber-400 shrink-0 mt-0.5" />
                   <span>
-                    Este contenido fue analizado previamente. Puedes re-analizarlo o consultar nuevas fuentes si lo deseas.
+                    Este apunte ya fue analizado recientemente. Puedes revisar de nuevo sus conceptos o actualizar las fuentes cuando lo necesites.
                   </span>
                 </div>
               )}
 
               <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-zinc-300 uppercase tracking-wider mb-1.5">
-                  Texto que será analizado ({textToAnalyze.length} caracteres)
-                </label>
-                <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 text-xs text-slate-700 dark:text-zinc-300 max-h-48 overflow-y-auto whitespace-pre-wrap leading-relaxed font-sans">
+                <div className="flex items-baseline justify-between gap-2 mb-1.5">
+                  <span className="text-xs font-semibold text-stone-700 dark:text-stone-300">
+                    Fragmento de tus apuntes a analizar
+                  </span>
+                  <span className="text-[11px] text-stone-500 dark:text-stone-400">
+                    {textToAnalyze.length} caracteres
+                  </span>
+                </div>
+                <div className="p-4 rounded-xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 text-xs sm:text-sm text-stone-800 dark:text-stone-200 max-h-52 overflow-y-auto whitespace-pre-wrap leading-relaxed font-sans">
                   {textToAnalyze.slice(0, 800)}
                   {textToAnalyze.length > 800 && (
-                    <span className="text-slate-400 dark:text-zinc-500 italic">
+                    <span className="text-stone-500 dark:text-stone-400 italic">
                       ... (+{textToAnalyze.length - 800} caracteres adicionales)
                     </span>
                   )}
                 </div>
               </div>
 
-              <div className="flex items-center justify-end gap-2 pt-2">
+              <div className="p-4 rounded-xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 text-xs text-stone-700 dark:text-stone-300 space-y-2 leading-relaxed">
+                <p className="font-semibold text-stone-900 dark:text-stone-100 flex items-center gap-1.5">
+                  <Layers className="w-4 h-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                  <span>Modalidades de estudio disponibles en el siguiente paso</span>
+                </p>
+                <ul className="space-y-1.5 text-stone-600 dark:text-stone-400 pl-1">
+                  <li>
+                    <strong className="text-stone-800 dark:text-stone-200">Definición contextual (recomendado):</strong>{' '}
+                    explica cada concepto según el contexto de tus apuntes, sin realizar búsquedas en internet.
+                  </li>
+                  <li>
+                    <strong className="text-stone-800 dark:text-stone-200">Buscar fuentes en Google:</strong>{' '}
+                    consulta enlaces y referencias bibliográficas abiertas en la web.
+                  </li>
+                  <li>
+                    <strong className="text-stone-800 dark:text-stone-200">Contrastar con Google Grounding:</strong>{' '}
+                    verifica afirmaciones puntuales frente a literatura y fuentes académicas indexadas.
+                  </li>
+                </ul>
+              </div>
+
+              <div className="flex flex-col-reverse sm:flex-row sm:items-center justify-end gap-2 pt-2 border-t border-stone-200 dark:border-stone-800">
                 <button
                   type="button"
                   onClick={onClose}
-                  className="px-4 py-2 text-xs font-medium rounded-xl text-slate-600 dark:text-zinc-400 hover:bg-slate-100 dark:hover:bg-zinc-800 transition"
+                  className="min-h-[44px] px-4 py-2.5 text-xs font-medium rounded-xl text-stone-600 dark:text-stone-400 hover:bg-stone-200/60 dark:hover:bg-stone-800 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600 focus-visible:ring-offset-2"
                 >
                   Cancelar
                 </button>
                 <button
                   type="button"
                   onClick={handleExtractTerms}
-                  className="flex items-center gap-1.5 px-4 py-2 text-xs font-semibold rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white transition shadow-sm active:scale-95"
+                  className="min-h-[44px] inline-flex items-center justify-center gap-2 px-5 py-2.5 text-xs sm:text-sm font-semibold rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white transition-colors shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600 focus-visible:ring-offset-2"
                 >
-                  <Search className="w-3.5 h-3.5" />
-                  <span>Extraer términos técnicos</span>
+                  <Search className="w-4 h-4 shrink-0" />
+                  <span>Extraer conceptos del apunte</span>
                 </button>
               </div>
             </div>
@@ -768,13 +794,17 @@ export const ConceptAnalysisModal: React.FC<{
 
           {/* STAGE: DETECTING SPINNER */}
           {stage === 'detecting' && (
-            <div className="py-12 flex flex-col items-center justify-center text-center space-y-3">
-              <RefreshCw className="w-8 h-8 text-indigo-600 dark:text-indigo-400 animate-spin" />
-              <p className="font-semibold text-sm text-slate-900 dark:text-zinc-100">
-                Extrayendo términos técnicos y revisando caché local...
+            <div
+              role="status"
+              aria-live="polite"
+              className="py-14 flex flex-col items-center justify-center text-center space-y-3"
+            >
+              <RefreshCw className="w-7 h-7 text-indigo-600 dark:text-indigo-400 animate-spin motion-reduce:animate-none" />
+              <p className="font-semibold text-sm sm:text-base text-stone-900 dark:text-stone-100">
+                Leyendo tus apuntes y detectando conceptos…
               </p>
-              <p className="text-xs text-slate-500 dark:text-zinc-400 max-w-xs">
-                Identificando conceptos compuestos en el texto sin llamadas externas a la web.
+              <p className="text-xs text-stone-600 dark:text-stone-400 max-w-sm leading-relaxed">
+                Identificando términos simples y compuestos en tu texto y comprobando tu caché local sin búsquedas externas.
               </p>
             </div>
           )}
@@ -782,26 +812,28 @@ export const ConceptAnalysisModal: React.FC<{
           {/* STAGE: REVIEW EXTRACTED TERMS */}
           {stage === 'review' && (
             <div className="space-y-4">
-              <div className="flex items-center justify-between gap-2">
+              <div className="flex items-start justify-between gap-3 flex-wrap">
                 <div>
-                  <h3 className="font-bold text-sm text-slate-900 dark:text-zinc-100">
-                    Términos detectados ({extractedTerms.length})
+                  <h3 className="font-bold text-sm sm:text-base text-stone-900 dark:text-stone-100">
+                    Conceptos detectados ({extractedTerms.length})
                   </h3>
-                  <p className="text-xs text-slate-500 dark:text-zinc-400">
-                    Elige los conceptos y la modalidad deseada para continuar.
+                  <p className="text-xs text-stone-600 dark:text-stone-400 mt-0.5">
+                    Marca los términos que deseas estudiar y elige cómo consultarlos.
                   </p>
                 </div>
-                <div className="flex items-center gap-2 text-xs">
+                <div className="flex items-center gap-1 text-xs">
                   <button
+                    type="button"
                     onClick={() => handleSelectAll(true)}
-                    className="text-indigo-600 dark:text-indigo-400 hover:underline font-medium"
+                    className="min-h-[36px] px-2.5 py-1 rounded-lg text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600"
                   >
-                    Todos
+                    Seleccionar todos
                   </button>
-                  <span>·</span>
+                  <span className="text-stone-300 dark:text-stone-700" aria-hidden="true">·</span>
                   <button
+                    type="button"
                     onClick={() => handleSelectAll(false)}
-                    className="text-slate-500 hover:underline"
+                    className="min-h-[36px] px-2.5 py-1 rounded-lg text-stone-600 dark:text-stone-400 hover:bg-stone-200/60 dark:hover:bg-stone-800 font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600"
                   >
                     Ninguno
                   </button>
@@ -809,90 +841,104 @@ export const ConceptAnalysisModal: React.FC<{
               </div>
 
               {/* Add custom term input */}
-              <div className="flex items-center gap-2 p-1.5 rounded-xl bg-slate-50 dark:bg-zinc-800/60 border border-slate-200 dark:border-zinc-700">
+              <div className="flex items-center gap-2 p-1.5 rounded-xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800">
+                <label htmlFor="custom-term-input" className="sr-only">
+                  Añadir concepto manualmente
+                </label>
                 <input
+                  id="custom-term-input"
                   type="text"
                   value={customTermInput}
                   onChange={(e) => setCustomTermInput(e.target.value)}
                   onKeyDown={(e) => e.key === 'Enter' && handleAddCustomTerm()}
-                  placeholder="Agregar término manualmente..."
-                  className="flex-1 px-2.5 py-1 text-xs bg-transparent text-slate-800 dark:text-zinc-100 placeholder:text-slate-400 focus:outline-none"
+                  placeholder="Añadir otro concepto manualmente…"
+                  className="flex-1 min-h-[40px] px-3 py-1.5 text-base sm:text-xs bg-transparent text-stone-900 dark:text-stone-100 placeholder:text-stone-400 focus:outline-none"
                 />
                 <button
                   type="button"
                   onClick={handleAddCustomTerm}
-                  className="px-3 py-1 rounded-lg bg-indigo-600 text-white font-medium text-xs hover:bg-indigo-700 transition"
+                  disabled={!customTermInput.trim()}
+                  className="min-h-[40px] px-3.5 py-1.5 rounded-lg bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-700 disabled:opacity-50 text-stone-800 dark:text-stone-200 font-semibold text-xs border border-stone-300 dark:border-stone-700 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600"
                 >
-                  Agregar
+                  Añadir
                 </button>
               </div>
 
               {/* Terms Checklist */}
-              <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+              <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
                 {extractedTerms.length === 0 ? (
-                  <p className="text-xs text-center py-6 text-slate-400 dark:text-zinc-500 italic">
-                    No se detectaron términos específicos. Puedes agregar uno manualmente arriba.
-                  </p>
+                  <div className="text-center py-8 px-4 rounded-xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 space-y-1">
+                    <p className="text-xs sm:text-sm font-medium text-stone-700 dark:text-stone-300">
+                      No se detectaron conceptos automáticamente en este fragmento.
+                    </p>
+                    <p className="text-xs text-stone-500 dark:text-stone-400">
+                      Escribe un término en el campo superior para añadirlo y analizarlo.
+                    </p>
+                  </div>
                 ) : (
                   extractedTerms.map((t, idx) => (
                     <div
                       key={idx}
                       onClick={() => toggleTermSelection(idx)}
-                      className={`flex items-start gap-3 p-3 rounded-2xl border transition-all cursor-pointer ${
+                      className={`flex items-start gap-3 p-3.5 rounded-xl border transition-colors cursor-pointer ${
                         t.selected
-                          ? 'bg-indigo-50/50 dark:bg-indigo-950/40 border-indigo-300 dark:border-indigo-800'
-                          : 'bg-white dark:bg-zinc-900 border-slate-200 dark:border-zinc-800 opacity-60'
+                          ? 'bg-white dark:bg-stone-900 border-indigo-400 dark:border-indigo-700'
+                          : 'bg-stone-100/60 dark:bg-stone-900/40 border-stone-200 dark:border-stone-800 opacity-75'
                       }`}
                     >
-                      <button type="button" className="mt-0.5 text-indigo-600 dark:text-indigo-400">
+                      <button
+                        type="button"
+                        role="checkbox"
+                        aria-checked={t.selected}
+                        aria-label={`Seleccionar ${t.name}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleTermSelection(idx);
+                        }}
+                        className="mt-0.5 min-h-[36px] min-w-[36px] -m-1.5 inline-flex items-center justify-center rounded-lg text-indigo-600 dark:text-indigo-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600 shrink-0"
+                      >
                         {t.selected ? (
-                          <CheckSquare className="w-4 h-4 fill-indigo-600 text-white" />
+                          <CheckSquare className="w-4 h-4 fill-indigo-600 text-white dark:fill-indigo-500 dark:text-stone-950" />
                         ) : (
-                          <Square className="w-4 h-4 text-slate-400" />
+                          <Square className="w-4 h-4 text-stone-400 dark:text-stone-500" />
                         )}
                       </button>
 
                       <div className="flex-1 min-w-0 text-xs">
                         <div className="flex items-center gap-2 flex-wrap mb-1">
-                          <span className="font-bold text-slate-900 dark:text-zinc-100 text-sm">
+                          <span className="font-bold text-stone-900 dark:text-stone-100 text-sm">
                             {t.name}
                           </span>
 
-                          {t.isCompound && (
-                            <span className="text-[10px] font-semibold px-1.5 py-0.2 rounded bg-violet-100 dark:bg-violet-950/70 text-violet-700 dark:text-violet-300">
-                              Compuesto
-                            </span>
-                          )}
-
-                          {t.cachedResult && (
-                            <span className="text-[10px] font-semibold px-1.5 py-0.2 rounded bg-blue-100 dark:bg-blue-950/70 text-blue-700 dark:text-blue-300 flex items-center gap-1">
-                              <Database className="w-3 h-3" /> En caché local
+                          {t.academicField && (
+                            <span className="text-xs text-stone-500 dark:text-stone-400">
+                              · {t.academicField}
                             </span>
                           )}
 
                           {t.alreadyInGlossary && (
-                            <span className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/50 px-1.5 py-0.2 rounded">
-                              ✓ En glosario
+                            <span className="text-[11px] font-medium text-emerald-800 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800/60 px-2 py-0.5 rounded-md">
+                              En tu glosario
                             </span>
                           )}
 
-                          {t.academicField && (
-                            <span className="text-[10px] font-medium text-slate-500 dark:text-zinc-400">
-                              #{t.academicField}
+                          {t.cachedResult && (
+                            <span className="text-[11px] font-medium px-2 py-0.5 rounded-md bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300 border border-stone-200 dark:border-stone-700 inline-flex items-center gap-1">
+                              <Database className="w-3 h-3" /> En caché local
                             </span>
                           )}
                         </div>
 
                         {t.contextSnippet && (
-                          <p className="text-[11px] text-slate-500 dark:text-zinc-400 italic line-clamp-2">
+                          <p className="text-xs text-stone-600 dark:text-stone-400 italic line-clamp-2 leading-relaxed">
                             "{t.contextSnippet}"
                           </p>
                         )}
 
                         {t.cachedResult && (
-                          <div className="mt-1 pt-1 border-t border-slate-100 dark:border-zinc-800/60 flex items-center justify-between text-[11px]">
-                            <span className="text-slate-400">
-                              {getRelativeTime(t.cachedResult.analyzedAt)}
+                          <div className="mt-2 pt-1.5 border-t border-stone-100 dark:border-stone-800/80 flex items-center justify-between gap-2 text-[11px]">
+                            <span className="text-stone-500 dark:text-stone-400">
+                              Consultado {getRelativeTime(t.cachedResult.analyzedAt).toLowerCase()}
                             </span>
                             <button
                               type="button"
@@ -900,13 +946,13 @@ export const ConceptAnalysisModal: React.FC<{
                                 e.stopPropagation();
                                 toggleForceReverify(idx);
                               }}
-                              className={`text-[10px] font-semibold px-2 py-0.5 rounded transition ${
+                              className={`min-h-[28px] text-[11px] font-medium px-2.5 py-0.5 rounded-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600 ${
                                 t.forceReverify
-                                  ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
-                                  : 'text-indigo-600 hover:underline'
+                                  ? 'bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-200 border border-amber-300 dark:border-amber-800'
+                                  : 'text-indigo-700 dark:text-indigo-300 hover:underline'
                               }`}
                             >
-                              {t.forceReverify ? '✓ Forzará nueva consulta' : 'Forzar nueva consulta'}
+                              {t.forceReverify ? '✓ Se actualizará la consulta' : 'Actualizar consulta'}
                             </button>
                           </div>
                         )}
@@ -916,63 +962,69 @@ export const ConceptAnalysisModal: React.FC<{
                 )}
               </div>
 
-              {/* Action Buttons for the 3 Modalities */}
-              <div className="pt-2 border-t border-slate-100 dark:border-zinc-800 space-y-2">
-                <div className="text-[11px] text-slate-500 dark:text-zinc-400 flex items-center justify-between">
+              {/* Action Hierarchy for the 3 Modalities */}
+              <div className="pt-3 border-t border-stone-200 dark:border-stone-800 space-y-3">
+                <div className="text-xs text-stone-600 dark:text-stone-400 flex items-center justify-between">
                   <span>
-                    Seleccionados: <strong>{extractedTerms.filter((t) => t.selected).length}</strong>
+                    Conceptos seleccionados:{' '}
+                    <strong className="text-stone-900 dark:text-stone-100">
+                      {extractedTerms.filter((t) => t.selected).length}
+                    </strong>
                   </span>
                   <button
                     type="button"
                     onClick={() => setStage('preview')}
-                    className="text-slate-500 hover:text-slate-700 dark:hover:text-zinc-300 hover:underline"
+                    className="min-h-[36px] px-2.5 py-1 rounded-lg text-stone-600 hover:text-stone-900 dark:text-stone-400 dark:hover:text-stone-200 hover:bg-stone-200/50 dark:hover:bg-stone-800 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600"
                   >
-                    Atrás
+                    Volver a la vista previa
                   </button>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                  {/* Modality A: Default Contextual Definition */}
-                  <button
-                    type="button"
-                    onClick={() =>
-                      executeBatchOperation(extractedTerms.filter((t) => t.selected), 'contextual')
-                    }
-                    disabled={extractedTerms.filter((t) => t.selected).length === 0}
-                    className="flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white transition shadow-sm active:scale-95"
-                    title="Definición contextual con IA sin búsquedas externas (modo predeterminado)"
-                  >
-                    <Sparkles className="w-3.5 h-3.5 shrink-0" />
-                    <span>Definición contextual (Predeterminado)</span>
-                  </button>
+                {/* Primary Action: Contextual Definition */}
+                <button
+                  type="button"
+                  onClick={() =>
+                    executeBatchOperation(extractedTerms.filter((t) => t.selected), 'contextual')
+                  }
+                  disabled={extractedTerms.filter((t) => t.selected).length === 0}
+                  className="w-full min-h-[44px] flex items-center justify-center gap-2 px-4 py-3 text-xs sm:text-sm font-semibold rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:pointer-events-none text-white transition-colors shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600 focus-visible:ring-offset-2"
+                >
+                  <BookOpen className="w-4 h-4 shrink-0" />
+                  <span>
+                    Generar definiciones contextuales ({extractedTerms.filter((t) => t.selected).length} seleccionados)
+                  </span>
+                </button>
 
-                  {/* Modality B: Google Search */}
-                  <button
-                    type="button"
-                    onClick={() =>
-                      executeBatchOperation(extractedTerms.filter((t) => t.selected), 'google_search')
-                    }
-                    disabled={extractedTerms.filter((t) => t.selected).length === 0}
-                    className="flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 disabled:opacity-50 text-slate-800 dark:text-zinc-200 border border-slate-200 dark:border-zinc-700 transition active:scale-95"
-                    title="Busca enlaces y referencias académicas en Google Search"
-                  >
-                    <Search className="w-3.5 h-3.5 text-blue-500 shrink-0" />
-                    <span>Buscar fuentes en Google</span>
-                  </button>
+                {/* Secondary Actions: External Web Search & Grounding */}
+                <div className="pt-1 space-y-1.5">
+                  <p className="text-[11px] font-medium text-stone-500 dark:text-stone-400">
+                    O consultar directamente con fuentes externas:
+                  </p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        executeBatchOperation(extractedTerms.filter((t) => t.selected), 'google_search')
+                      }
+                      disabled={extractedTerms.filter((t) => t.selected).length === 0}
+                      className="min-h-[44px] flex items-center justify-center gap-2 px-3 py-2.5 text-xs font-medium rounded-xl bg-white dark:bg-stone-900 hover:bg-stone-100 dark:hover:bg-stone-800 disabled:opacity-50 disabled:pointer-events-none text-stone-700 dark:text-stone-200 border border-stone-300 dark:border-stone-700 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600 focus-visible:ring-offset-2"
+                    >
+                      <Search className="w-3.5 h-3.5 text-stone-500 dark:text-stone-400 shrink-0" />
+                      <span>Buscar fuentes en Google</span>
+                    </button>
 
-                  {/* Modality C: Google Grounding */}
-                  <button
-                    type="button"
-                    onClick={() =>
-                      executeBatchOperation(extractedTerms.filter((t) => t.selected), 'grounding')
-                    }
-                    disabled={extractedTerms.filter((t) => t.selected).length === 0}
-                    className="flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 disabled:opacity-50 text-slate-800 dark:text-zinc-200 border border-slate-200 dark:border-zinc-700 transition active:scale-95"
-                    title="Verificación rigurosa con Google Search Grounding"
-                  >
-                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
-                    <span>Verificar con Google Grounding</span>
-                  </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        executeBatchOperation(extractedTerms.filter((t) => t.selected), 'grounding')
+                      }
+                      disabled={extractedTerms.filter((t) => t.selected).length === 0}
+                      className="min-h-[44px] flex items-center justify-center gap-2 px-3 py-2.5 text-xs font-medium rounded-xl bg-white dark:bg-stone-900 hover:bg-stone-100 dark:hover:bg-stone-800 disabled:opacity-50 disabled:pointer-events-none text-stone-700 dark:text-stone-200 border border-stone-300 dark:border-stone-700 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600 focus-visible:ring-offset-2"
+                    >
+                      <ShieldCheck className="w-3.5 h-3.5 text-stone-500 dark:text-stone-400 shrink-0" />
+                      <span>Contrastar con Google Grounding</span>
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -980,43 +1032,47 @@ export const ConceptAnalysisModal: React.FC<{
 
           {/* STAGE: VERIFYING BATCH WITH PROGRESS & CANCELLATION */}
           {stage === 'verifying' && (
-            <div className="py-8 flex flex-col items-center justify-center text-center space-y-4">
-              <div className="relative">
-                <RefreshCw className="w-12 h-12 text-indigo-600 dark:text-indigo-400 animate-spin" />
-                {batchProgress.mode === 'grounding' ? (
-                  <ShieldCheck className="w-5 h-5 text-emerald-500 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" />
-                ) : batchProgress.mode === 'google_search' ? (
-                  <Search className="w-5 h-5 text-blue-500 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" />
-                ) : (
-                  <Sparkles className="w-5 h-5 text-indigo-500 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" />
-                )}
+            <div
+              role="status"
+              aria-live="polite"
+              className="py-10 flex flex-col items-center justify-center text-center space-y-4"
+            >
+              <div className="relative flex items-center justify-center">
+                <RefreshCw className="w-10 h-10 text-indigo-600 dark:text-indigo-400 animate-spin motion-reduce:animate-none" />
               </div>
 
-              <div className="space-y-1 max-w-sm">
-                <h4 className="font-bold text-sm text-slate-900 dark:text-zinc-100">
+              <div className="space-y-1.5 max-w-sm">
+                <h3 className="font-bold text-sm sm:text-base text-stone-900 dark:text-stone-100">
                   {batchProgress.mode === 'grounding'
-                    ? 'Verificando con Google Grounding'
+                    ? 'Contrastando con Google Grounding'
                     : batchProgress.mode === 'google_search'
-                    ? 'Buscando fuentes en Google Search'
+                    ? 'Buscando fuentes en Google'
                     : 'Generando definiciones contextuales'}{' '}
                   ({batchProgress.currentIndex} de {batchProgress.total})
-                </h4>
-                <p className="text-xs text-indigo-600 dark:text-indigo-400 font-semibold truncate">
+                </h3>
+                <p className="text-xs sm:text-sm text-indigo-700 dark:text-indigo-300 font-semibold truncate">
                   «{batchProgress.currentTerm}»
                 </p>
-                <p className="text-[11px] text-slate-500 dark:text-zinc-400">
+                <p className="text-xs text-stone-600 dark:text-stone-400 leading-relaxed">
                   {batchProgress.mode === 'grounding'
-                    ? 'Contrastando afirmaciones con fuentes web documentadas.'
+                    ? 'Contrastando afirmaciones con fuentes académicas documentadas.'
                     : batchProgress.mode === 'google_search'
-                    ? 'Extrayendo referencias y fragmentos verificables.'
-                    : 'Estructurando definiciones y ejemplos según el contexto.'}
+                    ? 'Localizando referencias bibliográficas y enlaces web.'
+                    : 'Redactando definición académica, explicación sencilla y ejemplo según tus apuntes.'}
                 </p>
               </div>
 
               {/* Progress bar */}
-              <div className="w-full max-w-xs bg-slate-100 dark:bg-zinc-800 rounded-full h-2.5 overflow-hidden">
+              <div
+                role="progressbar"
+                aria-valuenow={batchProgress.percentage}
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-label="Progreso del análisis de conceptos"
+                className="w-full max-w-xs bg-stone-200 dark:bg-stone-800 rounded-full h-2 overflow-hidden"
+              >
                 <div
-                  className="bg-indigo-600 h-2.5 rounded-full transition-all duration-300"
+                  className="bg-indigo-600 dark:bg-indigo-500 h-2 rounded-full transition-all duration-200"
                   style={{ width: `${batchProgress.percentage}%` }}
                 />
               </div>
@@ -1025,37 +1081,37 @@ export const ConceptAnalysisModal: React.FC<{
               <button
                 type="button"
                 onClick={handleCancelAnalysis}
-                className="flex items-center gap-1.5 px-4 py-2 rounded-xl border border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-300 font-semibold text-xs hover:bg-red-100 transition active:scale-95 mt-2"
+                className="min-h-[44px] inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-900 text-stone-700 dark:text-stone-200 font-medium text-xs hover:bg-stone-100 dark:hover:bg-stone-800 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600 focus-visible:ring-offset-2 mt-2"
               >
-                <StopCircle className="w-4 h-4" />
-                <span>Cancelar proceso</span>
+                <StopCircle className="w-4 h-4 text-red-600 dark:text-red-400 shrink-0" />
+                <span>Detener y ver resultados actuales</span>
               </button>
             </div>
           )}
 
           {/* STAGE: RESULTS */}
           {stage === 'results' && (
-            <div className="space-y-4">
+            <div className="space-y-5">
               {/* Results Header Toolbar */}
-              <div className="flex items-center justify-between flex-wrap gap-2 pb-2 border-b border-slate-100 dark:border-zinc-800">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-stone-200 dark:border-stone-800">
                 <div>
-                  <h3 className="font-bold text-sm text-slate-900 dark:text-zinc-100">
+                  <h3 className="font-bold text-sm sm:text-base text-stone-900 dark:text-stone-100">
                     Conceptos analizados ({successfulCount} listos
-                    {failedCount > 0 ? `, ${failedCount} fallidos` : ''})
+                    {failedCount > 0 ? `, ${failedCount} con error` : ''})
                   </h3>
-                  <p className="text-xs text-slate-500 dark:text-zinc-400">
-                    Elige el nivel de consulta para cada concepto o aplica una modalidad a los seleccionados.
+                  <p className="text-xs text-stone-600 dark:text-stone-400 mt-0.5">
+                    Revisa las definiciones, profundiza en fuentes externas si lo necesitas o guárdalas en tu glosario.
                   </p>
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap shrink-0">
                   {failedCount > 0 && (
                     <button
                       type="button"
                       onClick={handleSelectiveRetry}
-                      className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-amber-50 dark:bg-amber-950/50 border border-amber-300 dark:border-amber-800 text-amber-700 dark:text-amber-300 font-semibold text-xs hover:bg-amber-100 transition"
+                      className="min-h-[40px] inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-amber-50 dark:bg-amber-950/50 border border-amber-300 dark:border-amber-800 text-amber-900 dark:text-amber-200 font-semibold text-xs hover:bg-amber-100 dark:hover:bg-amber-900/50 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600"
                     >
-                      <RotateCcw className="w-3.5 h-3.5" />
+                      <RotateCcw className="w-3.5 h-3.5 shrink-0" />
                       <span>Reintentar fallidos ({failedCount})</span>
                     </button>
                   )}
@@ -1064,59 +1120,63 @@ export const ConceptAnalysisModal: React.FC<{
                     <button
                       type="button"
                       onClick={() => handleSaveToGlossary()}
-                      className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-indigo-600 text-white font-semibold text-xs hover:bg-indigo-700 transition shadow-xs"
+                      className="min-h-[40px] inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs transition-colors shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600 focus-visible:ring-offset-2"
                     >
-                      <BookOpen className="w-3.5 h-3.5" />
-                      <span>Guardar todo en Glosario</span>
+                      <BookOpen className="w-3.5 h-3.5 shrink-0" />
+                      <span>Guardar todos en el glosario</span>
                     </button>
                   )}
                 </div>
               </div>
 
               {/* Multi-selection Toolbar for Batch Operations in Results */}
-              <div className="flex items-center justify-between p-2.5 rounded-2xl bg-slate-50 dark:bg-zinc-800/50 border border-slate-200 dark:border-zinc-800 text-xs flex-wrap gap-2">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between p-3 rounded-xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 text-xs gap-2.5">
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
+                    role="checkbox"
+                    aria-checked={selectedResultsCount === verifiedResults.length && verifiedResults.length > 0}
                     onClick={() => handleSelectAllResults(selectedResultsCount < verifiedResults.length)}
-                    className="inline-flex items-center gap-1 font-medium text-slate-700 dark:text-zinc-300 hover:text-indigo-600"
+                    className="min-h-[36px] inline-flex items-center gap-2 font-medium text-stone-700 dark:text-stone-300 hover:text-indigo-700 dark:hover:text-indigo-300 rounded-lg px-1.5 py-1 -ml-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600"
                   >
-                    {selectedResultsCount === verifiedResults.length ? (
-                      <CheckSquare className="w-4 h-4 text-indigo-600" />
+                    {selectedResultsCount === verifiedResults.length && verifiedResults.length > 0 ? (
+                      <CheckSquare className="w-4 h-4 text-indigo-600 fill-indigo-600 dark:fill-indigo-500 shrink-0" />
                     ) : (
-                      <Square className="w-4 h-4 text-slate-400" />
+                      <Square className="w-4 h-4 text-stone-400 dark:text-stone-500 shrink-0" />
                     )}
                     <span>
                       {selectedResultsCount > 0
-                        ? `${selectedResultsCount} seleccionados`
-                        : 'Seleccionar para lote'}
+                        ? `${selectedResultsCount} seleccionados para consulta en lote`
+                        : 'Seleccionar conceptos para consulta en lote'}
                     </span>
                   </button>
                 </div>
 
-                <div className="flex items-center gap-1.5 flex-wrap">
-                  <span className="text-[11px] text-slate-400">Aplicar a seleccionados:</span>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-[11px] font-medium text-stone-500 dark:text-stone-400">
+                    En lote:
+                  </span>
                   <button
                     type="button"
                     onClick={() => handleBatchActionInResults('google_search')}
-                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-900 font-medium text-[11px] hover:bg-blue-100 transition"
+                    className="min-h-[36px] inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-700 text-stone-700 dark:text-stone-200 border border-stone-300 dark:border-stone-700 font-medium text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600"
                   >
-                    <Search className="w-3 h-3" />
+                    <Search className="w-3.5 h-3.5 text-stone-500 dark:text-stone-400 shrink-0" />
                     <span>Buscar fuentes</span>
                   </button>
                   <button
                     type="button"
                     onClick={() => handleBatchActionInResults('grounding')}
-                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-900 font-medium text-[11px] hover:bg-emerald-100 transition"
+                    className="min-h-[36px] inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-700 text-stone-700 dark:text-stone-200 border border-stone-300 dark:border-stone-700 font-medium text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600"
                   >
-                    <ShieldCheck className="w-3 h-3" />
-                    <span>Verificar Grounding</span>
+                    <ShieldCheck className="w-3.5 h-3.5 text-stone-500 dark:text-stone-400 shrink-0" />
+                    <span>Contrastar Grounding</span>
                   </button>
                 </div>
               </div>
 
               {/* Results Cards List */}
-              <div className="space-y-3 max-h-72 overflow-y-auto pr-1">
+              <div className="space-y-4">
                 {verifiedResults.map((r, i) => {
                   const isExpanded = expandedCard === r.termName;
 
@@ -1124,134 +1184,148 @@ export const ConceptAnalysisModal: React.FC<{
                     return (
                       <div
                         key={i}
-                        className="bg-red-50/60 dark:bg-red-950/30 border border-red-200 dark:border-red-900/50 rounded-2xl p-3.5 space-y-2 text-xs"
+                        role="alert"
+                        className="bg-red-50/70 dark:bg-red-950/30 border border-red-200 dark:border-red-900/60 rounded-xl p-4 space-y-1.5 text-xs"
                       >
-                        <div className="flex items-center justify-between">
+                        <div className="flex items-center justify-between gap-2">
                           <span className="font-bold text-sm text-red-900 dark:text-red-200">
                             {r.termName}
                           </span>
-                          <span className="text-[10px] font-semibold text-red-700 bg-red-100 dark:bg-red-900/60 px-2 py-0.5 rounded-full">
-                            Error en consulta
+                          <span className="text-[11px] font-semibold text-red-800 dark:text-red-200 bg-red-100 dark:bg-red-900/60 px-2.5 py-0.5 rounded-md">
+                            No completado
                           </span>
                         </div>
-                        <p className="text-red-600 dark:text-red-400 text-[11px]">
-                          {r.errorDetails || 'Problema de red o cuota al conectar con el servicio.'}
+                        <p className="text-red-700 dark:text-red-300 text-xs leading-relaxed">
+                          {r.errorDetails || 'No pudimos completar la consulta por un problema de conexión o límite de uso. Puedes reintentarlo arriba.'}
                         </p>
                       </div>
                     );
                   }
 
                   return (
-                    <div
+                    <article
                       key={i}
-                      className="bg-slate-50 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-2xl p-3.5 space-y-2.5 text-xs transition"
+                      className="bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 rounded-xl p-4 sm:p-5 space-y-4 text-xs"
                     >
-                      {/* Top bar with term name, checkbox, and status badges */}
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="flex items-start gap-2">
+                      {/* Simplified Card Header */}
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex items-start gap-2.5 min-w-0">
                           <button
                             type="button"
+                            role="checkbox"
+                            aria-checked={!!r.selectedForBatch}
+                            aria-label={`Seleccionar ${r.termName} para operación en lote`}
                             onClick={() => toggleResultSelection(r.termName)}
-                            className="mt-0.5 text-slate-400 hover:text-indigo-600"
+                            className="mt-0.5 min-h-[36px] min-w-[36px] -m-1.5 inline-flex items-center justify-center rounded-lg text-stone-400 hover:text-indigo-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600 shrink-0"
                           >
                             {r.selectedForBatch ? (
-                              <CheckSquare className="w-4 h-4 text-indigo-600 fill-indigo-600" />
+                              <CheckSquare className="w-4 h-4 text-indigo-600 fill-indigo-600 dark:fill-indigo-500 dark:text-stone-950" />
                             ) : (
-                              <Square className="w-4 h-4 text-slate-400" />
+                              <Square className="w-4 h-4 text-stone-400 dark:text-stone-500" />
                             )}
                           </button>
 
-                          <div>
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <span className="font-bold text-sm text-slate-900 dark:text-zinc-50">
+                          <div className="min-w-0 space-y-1">
+                            <div className="flex items-baseline gap-2 flex-wrap">
+                              <h4 className="font-bold text-base text-stone-900 dark:text-stone-100 leading-snug">
                                 {r.termName}
-                              </span>
+                              </h4>
+                              {r.academicField && (
+                                <span className="text-xs text-stone-500 dark:text-stone-400">
+                                  · {r.academicField}
+                                </span>
+                              )}
+                            </div>
 
-                              {/* Query Status Badge */}
+                            {/* Single clear status line */}
+                            <div className="flex items-center gap-2 flex-wrap">
                               {r.queryStatus === 'contrastado_web' ? (
                                 <span
-                                  className={`inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full ${
+                                  className={`inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-md border ${
                                     r.verificationStatus === 'verificado'
-                                      ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                                      ? 'bg-emerald-50 text-emerald-800 border-emerald-200 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-800/70'
                                       : r.verificationStatus === 'discrepancia'
-                                      ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
-                                      : 'bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300'
+                                      ? 'bg-amber-50 text-amber-900 border-amber-200 dark:bg-amber-950/60 dark:text-amber-300 dark:border-amber-800/70'
+                                      : 'bg-red-50 text-red-800 border-red-200 dark:bg-red-950/60 dark:text-red-300 dark:border-red-800/70'
                                   }`}
-                                  title="Contrastado mediante Google Search Grounding"
                                 >
-                                  <ShieldCheck className="w-3 h-3" />
+                                  <ShieldCheck className="w-3 h-3 shrink-0" />
                                   <span>
                                     {r.verificationStatus === 'verificado'
                                       ? 'Contrastado con fuentes web'
                                       : r.verificationStatus === 'discrepancia'
                                       ? 'Discrepancia entre fuentes'
-                                      : 'Sin respaldo suficiente'}
+                                      : 'Sin respaldo suficiente en fuentes'}
                                   </span>
                                 </span>
                               ) : r.queryStatus === 'fuentes_consultadas' ? (
-                                <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300" title="Fuentes consultadas en Google Search">
-                                  <Search className="w-3 h-3" />
-                                  <span>Fuentes consultadas ({r.sources.length})</span>
+                                <span className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-md bg-stone-100 text-stone-800 border border-stone-300 dark:bg-stone-800 dark:text-stone-200 dark:border-stone-700">
+                                  <Search className="w-3 h-3 shrink-0" />
+                                  <span>Fuentes web consultadas ({r.sources.length})</span>
                                 </span>
                               ) : (
-                                <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-200/80 text-slate-700 dark:bg-zinc-800 dark:text-zinc-300" title="Definición contextual generada por IA sin búsqueda externa">
-                                  <BookOpen className="w-3 h-3" />
-                                  <span>Sin verificar (Contextual IA)</span>
+                                <span className="inline-flex items-center gap-1 text-[11px] font-medium text-stone-600 dark:text-stone-400">
+                                  <BookOpen className="w-3 h-3 shrink-0" />
+                                  <span>Análisis de tus apuntes (sin verificar en web)</span>
                                 </span>
                               )}
 
                               {r.isFromCache && (
-                                <span className="text-[10px] font-semibold px-1.5 py-0.2 rounded bg-indigo-50 text-indigo-700 dark:bg-indigo-950/50 dark:text-indigo-300 flex items-center gap-1">
-                                  <Database className="w-2.5 h-2.5" /> En caché
+                                <span className="text-[11px] text-stone-500 dark:text-stone-400 inline-flex items-center gap-1">
+                                  <Database className="w-3 h-3 shrink-0" />
+                                  <span>En caché</span>
                                 </span>
                               )}
-
-                              <span className="text-slate-400 text-[11px]">#{r.academicField}</span>
                             </div>
-
-                            <p className="text-[10px] text-slate-400 mt-0.5 flex items-center gap-1">
-                              <Clock className="w-3 h-3" />
-                              <span>Consulta: {formatDateTime(r.consultedAt || r.analyzedAt)}</span>
-                            </p>
                           </div>
                         </div>
 
-                        {/* Top Right: Save and Expand */}
-                        <div className="flex items-center gap-1 shrink-0">
+                        {/* Top Right: Unmistakable Glossary Save Button */}
+                        <div className="shrink-0">
                           <button
+                            type="button"
                             onClick={() => handleSaveToGlossary(r)}
                             disabled={r.savedToGlossary}
-                            className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition ${
+                            aria-label={
                               r.savedToGlossary
-                                ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950/60 dark:text-emerald-400'
-                                : 'bg-indigo-50 text-indigo-600 dark:bg-indigo-950/60 dark:text-indigo-400 hover:bg-indigo-100'
+                                ? `${r.termName} ya está guardado en el glosario`
+                                : `Guardar ${r.termName} en el glosario`
+                            }
+                            className={`min-h-[40px] inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600 ${
+                              r.savedToGlossary
+                                ? 'bg-emerald-50 text-emerald-800 border border-emerald-200 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-800/70 cursor-default'
+                                : 'bg-stone-100 hover:bg-indigo-50 text-stone-800 hover:text-indigo-700 border border-stone-300 hover:border-indigo-300 dark:bg-stone-800 dark:hover:bg-indigo-950/60 dark:text-stone-200 dark:hover:text-indigo-300 dark:border-stone-700'
                             }`}
                           >
-                            {r.savedToGlossary ? 'Guardado ✓' : '+ Glosario'}
-                          </button>
-                          <button
-                            onClick={() => setExpandedCard(isExpanded ? null : r.termName)}
-                            className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-zinc-200"
-                          >
-                            {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                            {r.savedToGlossary ? (
+                              <>
+                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                                <span>Guardado</span>
+                              </>
+                            ) : (
+                              <>
+                                <BookOpen className="w-3.5 h-3.5 shrink-0" />
+                                <span>+ Glosario</span>
+                              </>
+                            )}
                           </button>
                         </div>
                       </div>
 
-                      {/* Modal Notice / Disclaimer Banner */}
+                      {/* Notice / Quota Banner */}
                       {r.notice && (
                         <div
-                          className={`p-2 rounded-xl text-[11px] leading-tight flex items-start justify-between gap-2 ${
+                          className={`p-3 rounded-xl text-xs leading-relaxed flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 ${
                             r.quotaExceeded
-                              ? 'bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/60 text-amber-800 dark:text-amber-200'
-                              : 'bg-slate-100/80 dark:bg-zinc-900 border border-slate-200/60 dark:border-zinc-800 text-slate-600 dark:text-zinc-400'
+                              ? 'bg-amber-50/90 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/60 text-amber-900 dark:text-amber-200'
+                              : 'bg-stone-100/70 dark:bg-stone-950/60 border border-stone-200/80 dark:border-stone-800 text-stone-600 dark:text-stone-400'
                           }`}
                         >
                           <div className="space-y-0.5">
                             <p>{r.notice}</p>
                             {r.quotaExceeded && (
-                              <p className="text-[10px] text-amber-700 dark:text-amber-300 font-medium">
-                                Consulta fuentes externas directamente en la web académica:
+                              <p className="text-[11px] text-amber-800 dark:text-amber-300 font-medium">
+                                Puedes consultar bibliografía directamente en Google Académico:
                               </p>
                             )}
                           </div>
@@ -1260,56 +1334,79 @@ export const ConceptAnalysisModal: React.FC<{
                               href={`https://scholar.google.com/scholar?q=${encodeURIComponent(r.termName)}`}
                               target="_blank"
                               rel="noreferrer noopener"
-                              className="shrink-0 inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-amber-100 dark:bg-amber-900/60 hover:bg-amber-200 text-amber-900 dark:text-amber-100 font-semibold text-[10px] transition"
+                              className="min-h-[36px] shrink-0 inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-100 dark:bg-amber-900/60 hover:bg-amber-200 dark:hover:bg-amber-900 text-amber-950 dark:text-amber-100 font-semibold text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600"
                             >
                               <span>Google Académico</span>
-                              <ExternalLink className="w-2.5 h-2.5" />
+                              <ExternalLink className="w-3 h-3 shrink-0" />
                             </a>
                           )}
                         </div>
                       )}
 
-                      {/* Academic definition */}
-                      <div>
-                        <p className="font-semibold text-slate-700 dark:text-zinc-300 text-[11px]">
-                          Definición contextual:
+                      {/* Primary Content: Academic Definition */}
+                      <div className="space-y-1">
+                        <p className="font-semibold text-stone-500 dark:text-stone-400 text-[11px] uppercase tracking-wider">
+                          Definición académica
                         </p>
-                        <p className="text-slate-600 dark:text-zinc-400 leading-relaxed mt-0.5">
+                        <p className="text-sm sm:text-[15px] text-stone-900 dark:text-stone-100 leading-relaxed max-w-prose">
                           {r.academicDefinition}
                         </p>
                       </div>
 
-                      {/* Plain Explanation */}
+                      {/* Visual Support: Plain Explanation */}
                       {r.plainExplanation && (
-                        <div className="p-2.5 rounded-xl bg-white dark:bg-zinc-900 border border-slate-100 dark:border-zinc-800">
-                          <p className="font-semibold text-slate-700 dark:text-zinc-300 text-[11px]">
-                            En lenguaje sencillo:
+                        <div className="p-3.5 rounded-xl bg-stone-50 dark:bg-stone-950/70 border border-stone-200/80 dark:border-stone-800 space-y-1">
+                          <p className="font-semibold text-stone-700 dark:text-stone-300 text-xs">
+                            En lenguaje sencillo
                           </p>
-                          <p className="text-slate-600 dark:text-zinc-400 leading-relaxed mt-0.5">
+                          <p className="text-xs sm:text-sm text-stone-700 dark:text-stone-300 leading-relaxed max-w-prose">
                             {r.plainExplanation}
                           </p>
                         </div>
                       )}
 
-                      {/* Illustrative Example (expandable) */}
-                      {isExpanded && r.illustrativeExample && (
-                        <div className="p-2.5 rounded-xl bg-amber-50/50 dark:bg-amber-950/20 border border-amber-200/50 dark:border-amber-800/30">
-                          <p className="font-semibold text-amber-900 dark:text-amber-300 text-[11px]">
-                            Ejemplo ilustrativo:
-                          </p>
-                          <p className="text-slate-600 dark:text-zinc-400 leading-relaxed mt-0.5">
-                            {r.illustrativeExample}
-                          </p>
+                      {/* Expandable Didactic Example */}
+                      {r.illustrativeExample && (
+                        <div>
+                          <button
+                            type="button"
+                            aria-expanded={isExpanded}
+                            onClick={() => setExpandedCard(isExpanded ? null : r.termName)}
+                            className="min-h-[36px] inline-flex items-center gap-1.5 text-xs font-medium text-indigo-700 dark:text-indigo-300 hover:text-indigo-800 dark:hover:text-indigo-200 rounded-lg px-2 py-1 -ml-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600"
+                          >
+                            {isExpanded ? (
+                              <>
+                                <ChevronUp className="w-4 h-4 shrink-0" />
+                                <span>Ocultar ejemplo práctico</span>
+                              </>
+                            ) : (
+                              <>
+                                <ChevronDown className="w-4 h-4 shrink-0" />
+                                <span>Ver ejemplo práctico</span>
+                              </>
+                            )}
+                          </button>
+
+                          {isExpanded && (
+                            <div className="mt-2 p-3.5 rounded-xl bg-stone-50 dark:bg-stone-950/50 border-l-2 border-indigo-600 dark:border-indigo-400 space-y-1">
+                              <p className="font-semibold text-stone-800 dark:text-stone-200 text-xs">
+                                Ejemplo práctico
+                              </p>
+                              <p className="text-xs sm:text-sm text-stone-700 dark:text-stone-300 leading-relaxed max-w-prose">
+                                {r.illustrativeExample}
+                              </p>
+                            </div>
+                          )}
                         </div>
                       )}
 
                       {/* Grounding Supported Segments (Grounding mode) */}
                       {r.supportedSegments && r.supportedSegments.length > 0 && (
-                        <div className="p-2.5 rounded-xl bg-emerald-50/50 dark:bg-emerald-950/20 border border-emerald-200/50 dark:border-emerald-800/30 space-y-1">
-                          <p className="font-semibold text-emerald-800 dark:text-emerald-300 text-[10px] uppercase tracking-wider">
-                            Afirmaciones respaldadas por fuentes web:
+                        <div className="p-3.5 rounded-xl bg-emerald-50/60 dark:bg-emerald-950/25 border border-emerald-200/70 dark:border-emerald-800/40 space-y-1.5">
+                          <p className="font-semibold text-emerald-900 dark:text-emerald-300 text-xs">
+                            Afirmaciones respaldadas por fuentes web
                           </p>
-                          <ul className="list-disc pl-3.5 space-y-0.5 text-[11px] text-emerald-900 dark:text-emerald-200">
+                          <ul className="list-disc pl-4 space-y-1 text-xs text-emerald-950 dark:text-emerald-200 leading-relaxed">
                             {r.supportedSegments.map((seg, sIdx) => (
                               <li key={sIdx}>{seg}</li>
                             ))}
@@ -1319,32 +1416,30 @@ export const ConceptAnalysisModal: React.FC<{
 
                       {/* Authentic Sources Section (Search or Grounding) */}
                       {r.sources && r.sources.length > 0 && (
-                        <div className="pt-2 border-t border-slate-200/60 dark:border-zinc-800/60 space-y-1.5">
-                          <div className="flex items-center justify-between text-[10px] text-slate-500 dark:text-zinc-400 uppercase tracking-wider font-semibold">
-                            <span>
-                              {r.queryStatus === 'contrastado_web'
-                                ? `Fuentes de verificación (${r.sources.length})`
-                                : `Fuentes web en Google (${r.sources.length})`}
-                            </span>
-                          </div>
+                        <div className="pt-3 border-t border-stone-200/80 dark:border-stone-800 space-y-2">
+                          <p className="text-xs font-semibold text-stone-700 dark:text-stone-300">
+                            {r.queryStatus === 'contrastado_web'
+                              ? `Fuentes de verificación (${r.sources.length})`
+                              : `Fuentes web consultadas (${r.sources.length})`}
+                          </p>
 
-                          <div className="space-y-1.5 max-h-40 overflow-y-auto">
+                          <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
                             {r.sources.map((s, idx) => (
                               <div
                                 key={idx}
-                                className="p-2 rounded-xl bg-white dark:bg-zinc-900 border border-slate-200/70 dark:border-zinc-800/70 space-y-1"
+                                className="p-2.5 rounded-xl bg-stone-50 dark:bg-stone-950/60 border border-stone-200/80 dark:border-stone-800 space-y-1"
                               >
                                 <a
                                   href={s.url}
                                   target="_blank"
                                   rel="noreferrer noopener"
-                                  className="flex items-center justify-between text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 hover:underline"
+                                  className="inline-flex items-center justify-between gap-2 w-full text-xs font-semibold text-indigo-700 dark:text-indigo-300 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600 rounded"
                                 >
                                   <span className="line-clamp-1">{s.title || s.url}</span>
-                                  <ExternalLink className="w-3 h-3 shrink-0 ml-1.5" />
+                                  <ExternalLink className="w-3.5 h-3.5 shrink-0" />
                                 </a>
                                 {s.snippet && (
-                                  <p className="text-[10px] text-slate-500 dark:text-zinc-400 italic line-clamp-2">
+                                  <p className="text-xs text-stone-600 dark:text-stone-400 italic line-clamp-2 leading-relaxed">
                                     "{s.snippet}"
                                   </p>
                                 )}
@@ -1354,68 +1449,72 @@ export const ConceptAnalysisModal: React.FC<{
                         </div>
                       )}
 
-                      {/* Individual Action Buttons per Card */}
-                      <div className="pt-2 border-t border-slate-200/60 dark:border-zinc-800/60 flex items-center justify-between flex-wrap gap-2">
-                        <span className="text-[10px] text-slate-400">
-                          Acciones para este concepto:
-                        </span>
+                      {/* Subordinated Individual Deepening Actions */}
+                      <div className="pt-3 border-t border-stone-200/70 dark:border-stone-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                        <div className="flex items-center gap-3 flex-wrap text-[11px] text-stone-500 dark:text-stone-400">
+                          <span className="font-medium text-stone-600 dark:text-stone-400">
+                            Profundizar este concepto:
+                          </span>
+                          <span className="inline-flex items-center gap-1">
+                            <Clock className="w-3 h-3 shrink-0" />
+                            <span>{formatDateTime(r.consultedAt || r.analyzedAt)}</span>
+                          </span>
+                        </div>
 
-                        <div className="flex items-center gap-1.5">
+                        <div className="flex items-center gap-2 flex-wrap">
                           {/* Button: Buscar fuentes en Google */}
                           <button
                             type="button"
                             disabled={r.isLoadingAction}
                             onClick={() => handleSingleTermAction(r.termName, 'google_search')}
-                            className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-semibold transition ${
+                            className={`min-h-[38px] inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600 ${
                               r.queryStatus === 'fuentes_consultadas'
-                                ? 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300'
-                                : 'bg-slate-100 hover:bg-slate-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-slate-700 dark:text-zinc-300 border border-slate-200 dark:border-zinc-700'
+                                ? 'bg-stone-200/80 text-stone-900 border-stone-400 dark:bg-stone-800 dark:text-stone-100 dark:border-stone-600'
+                                : 'bg-stone-50 hover:bg-stone-100 dark:bg-stone-950 dark:hover:bg-stone-800 text-stone-700 dark:text-stone-300 border-stone-300 dark:border-stone-700'
                             }`}
-                            title="Buscar fuentes y referencias en Google Search"
                           >
                             {r.isLoadingAction ? (
-                              <RefreshCw className="w-3 h-3 animate-spin text-blue-500" />
+                              <RefreshCw className="w-3.5 h-3.5 animate-spin motion-reduce:animate-none text-stone-500 shrink-0" />
                             ) : (
-                              <Search className="w-3 h-3 text-blue-500" />
+                              <Search className="w-3.5 h-3.5 text-stone-500 dark:text-stone-400 shrink-0" />
                             )}
                             <span>Buscar fuentes en Google</span>
                           </button>
 
-                          {/* Button: Verificar con Google Grounding */}
+                          {/* Button: Contrastar con Google Grounding */}
                           <button
                             type="button"
                             disabled={r.isLoadingAction}
                             onClick={() => handleSingleTermAction(r.termName, 'grounding')}
-                            className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-semibold transition ${
+                            className={`min-h-[38px] inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600 ${
                               r.queryStatus === 'contrastado_web'
-                                ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
-                                : 'bg-slate-100 hover:bg-slate-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-slate-700 dark:text-zinc-300 border border-slate-200 dark:border-zinc-700'
+                                ? 'bg-emerald-50 text-emerald-900 border-emerald-300 dark:bg-emerald-950/60 dark:text-emerald-200 dark:border-emerald-800'
+                                : 'bg-stone-50 hover:bg-stone-100 dark:bg-stone-950 dark:hover:bg-stone-800 text-stone-700 dark:text-stone-300 border-stone-300 dark:border-stone-700'
                             }`}
-                            title="Verificación con Google Search Grounding"
                           >
                             {r.isLoadingAction ? (
-                              <RefreshCw className="w-3 h-3 animate-spin text-emerald-500" />
+                              <RefreshCw className="w-3.5 h-3.5 animate-spin motion-reduce:animate-none text-stone-500 shrink-0" />
                             ) : (
-                              <ShieldCheck className="w-3 h-3 text-emerald-500" />
+                              <ShieldCheck className="w-3.5 h-3.5 text-stone-500 dark:text-stone-400 shrink-0" />
                             )}
-                            <span>Verificar con Google Grounding</span>
+                            <span>Contrastar con Grounding</span>
                           </button>
                         </div>
                       </div>
-                    </div>
+                    </article>
                   );
                 })}
               </div>
 
               {/* Bottom Finish and Close */}
-              <div className="flex items-center justify-between pt-2 border-t border-slate-100 dark:border-zinc-800 text-xs">
-                <span className="text-slate-400">
-                  {successfulCount} de {verifiedResults.length} términos listos
+              <div className="flex items-center justify-between pt-3 border-t border-stone-200 dark:border-stone-800 text-xs">
+                <span className="text-stone-600 dark:text-stone-400">
+                  {successfulCount} de {verifiedResults.length} conceptos listos
                 </span>
                 <button
                   type="button"
                   onClick={onClose}
-                  className="px-4 py-2 font-semibold rounded-xl bg-slate-900 dark:bg-zinc-100 text-white dark:text-zinc-900 hover:opacity-90 transition active:scale-95"
+                  className="min-h-[44px] px-5 py-2.5 font-semibold rounded-xl bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 hover:bg-stone-800 dark:hover:bg-stone-200 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600 focus-visible:ring-offset-2"
                 >
                   Finalizar y cerrar
                 </button>

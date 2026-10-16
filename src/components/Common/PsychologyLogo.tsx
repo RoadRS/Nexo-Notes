@@ -88,7 +88,7 @@ export const PsychologyLogo: React.FC<PsychologyLogoProps> = ({
   if (showBadge) {
     return (
       <div
-        className={`inline-flex items-center justify-center rounded-xl bg-gradient-to-br from-indigo-600 via-indigo-700 to-indigo-900 shadow-sm shrink-0 ${className}`}
+        className={`inline-flex items-center justify-center rounded-xl bg-indigo-600 dark:bg-indigo-500 shrink-0 ${className}`}
         style={{ width: size + 10, height: size + 10 }}
       >
         {content}

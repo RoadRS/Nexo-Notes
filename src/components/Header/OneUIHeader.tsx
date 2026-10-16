@@ -1,12 +1,28 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useApp } from '../../context/AppContext';
-import { Search, FolderPlus, X, Filter, Wifi, WifiOff, Sparkles, ArrowLeft, AlertTriangle } from 'lucide-react';
+import { useApp, AppTab } from '../../context/AppContext';
+import {
+  Search,
+  FolderPlus,
+  X,
+  Wifi,
+  WifiOff,
+  ArrowLeft,
+  AlertTriangle,
+  FileText,
+  Layers,
+  BookOpen,
+  FolderArchive,
+  Settings,
+  Check,
+} from 'lucide-react';
 import { PsychologyLogo } from '../Common/PsychologyLogo';
 
 export const OneUIHeader: React.FC = () => {
   const {
     notes,
     folders,
+    glossary,
+    documents,
     selectedFolderId,
     setSelectedFolderId,
     selectedSubject,
@@ -15,8 +31,9 @@ export const OneUIHeader: React.FC = () => {
     setSearchQuery,
     createFolder,
     isOnline,
-    aiAvailable,
     activeTab,
+    setActiveTab,
+    setActiveNote,
     showNotification,
   } = useApp();
 
@@ -24,14 +41,14 @@ export const OneUIHeader: React.FC = () => {
   const [showFolderModal, setShowFolderModal] = useState(false);
   const [showDiscardConfirm, setShowDiscardConfirm] = useState(false);
   const [newFolderName, setNewFolderName] = useState('');
-  const [newFolderColor, setNewFolderColor] = useState('#6366F1');
+  const [newFolderColor, setNewFolderColor] = useState('#4F46E5');
   const [newFolderSubject, setNewFolderSubject] = useState('');
 
   // Extract unique subjects from notes and folders
   const allSubjects = Array.from(
     new Set([
       ...notes.map((n) => n.subject).filter(Boolean),
-      ...folders.map((f) => f.subject).filter(Boolean) as string[],
+      ...(folders.map((f) => f.subject).filter(Boolean) as string[]),
     ])
   );
 
@@ -74,17 +91,14 @@ export const OneUIHeader: React.FC = () => {
   useEffect(() => {
     if (!showFolderModal) return;
 
-    const handlePopState = (e: PopStateEvent) => {
-      // Android Back Button / Gesture was pressed
+    const handlePopState = () => {
       historyPushedRef.current = false;
 
       if (hasUnsavedChanges) {
-        // Prevent leaving accidentally: re-push modal state and show confirmation
         window.history.pushState({ modal: 'createNotebook' }, '');
         historyPushedRef.current = true;
         setShowDiscardConfirm(true);
       } else {
-        // No unsaved changes -> exit immediately back to previous screen
         setNewFolderName('');
         setNewFolderSubject('');
         setShowFolderModal(false);
@@ -133,15 +147,15 @@ export const OneUIHeader: React.FC = () => {
   const getHeaderTitle = () => {
     switch (activeTab) {
       case 'notes':
-        return 'Todos los apuntes';
+        return 'Mis apuntes';
       case 'analyze':
-        return 'Análisis conceptual';
+        return 'Análisis de conceptos';
       case 'glossary':
-        return 'Glosario académico';
+        return 'Glosario de psicología';
       case 'library':
-        return 'Biblioteca documental';
+        return 'Biblioteca de lecturas';
       case 'settings':
-        return 'Ajustes y privacidad';
+        return 'Ajustes y respaldo';
       default:
         return 'Nexo Notes';
     }
@@ -151,129 +165,215 @@ export const OneUIHeader: React.FC = () => {
     switch (activeTab) {
       case 'notes': {
         const count = notes.length;
-        return `${count} ${count === 1 ? 'apunte' : 'apuntes'} · Guardado local seguro`;
+        return `${count} ${count === 1 ? 'apunte guardado' : 'apuntes guardados'} en este dispositivo`;
       }
       case 'analyze':
-        return 'Detección técnica & Verificación con Google Search';
+        return 'Extrae términos psicológicos de tus apuntes y contrástalos con fuentes académicas';
       case 'glossary':
-        return 'Términos fundamentados con fuentes verificables';
+        return `${glossary.length} ${glossary.length === 1 ? 'concepto registrado' : 'conceptos registrados'} para estudio y repaso`;
       case 'library':
-        return 'PDFs, diapositivas y extracción OCR';
+        return `${documents.length} ${documents.length === 1 ? 'documento importado' : 'documentos importados'} (PDF, PPTX y lecturas)`;
       case 'settings':
-        return 'Preferencias, temas y copias de seguridad';
+        return 'Tema de lectura, copias de seguridad locales y privacidad';
       default:
-        return 'Cuaderno inteligente';
+        return 'Espacio académico de estudio';
     }
   };
 
-  return (
-    <header className="sticky top-0 z-30 bg-slate-50/90 dark:bg-zinc-950/90 backdrop-blur-md border-b border-slate-200/60 dark:border-zinc-800/60 pt-3 pb-2 transition-colors">
-      <div className="max-w-xl mx-auto px-4">
-        {/* Top Reachability Bar */}
-        <div className="flex items-center justify-between gap-2 mb-2">
-          <div className="flex items-center gap-2.5">
-            {/* Psychology Logo Badge */}
-            <PsychologyLogo size={22} className="shadow-xs" />
+  const desktopTabs: Array<{
+    id: AppTab;
+    label: string;
+    icon: React.ComponentType<{ className?: string }>;
+    count?: number;
+  }> = [
+    { id: 'notes', label: 'Apuntes', icon: FileText, count: notes.length },
+    { id: 'analyze', label: 'Analizar', icon: Layers },
+    { id: 'glossary', label: 'Glosario', icon: BookOpen, count: glossary.length },
+    { id: 'library', label: 'Biblioteca', icon: FolderArchive, count: documents.length },
+    { id: 'settings', label: 'Ajustes', icon: Settings },
+  ];
 
-            <span className="font-extrabold text-xl tracking-tight bg-gradient-to-r from-indigo-600 to-violet-600 dark:from-indigo-400 dark:to-violet-400 bg-clip-text text-transparent">
+  const folderColors = [
+    { hex: '#4F46E5', name: 'Índigo' },
+    { hex: '#0D9488', name: 'Verde azulado' },
+    { hex: '#2563EB', name: 'Azul' },
+    { hex: '#D97706', name: 'Ámbar' },
+    { hex: '#7C3AED', name: 'Violeta' },
+    { hex: '#E11D48', name: 'Carmesí' },
+    { hex: '#57534E', name: 'Piedra' },
+  ];
+
+  return (
+    <header className="sticky top-0 z-30 bg-stone-50/95 dark:bg-stone-950/95 backdrop-blur-sm border-b border-stone-200 dark:border-stone-800/80 transition-colors">
+      <div className="max-w-5xl mx-auto px-4 sm:px-6 pt-3 pb-2.5">
+        {/* Top Bar: Brand + Desktop Navigation + Contextual Controls */}
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <PsychologyLogo size={20} className="shrink-0" />
+            <span className="font-bold text-base sm:text-lg tracking-tight text-stone-900 dark:text-stone-100 truncate">
               Nexo Notes
             </span>
 
-            <div className="flex items-center gap-1.5 ml-1">
+            <span
+              title={
+                isOnline
+                  ? 'Conectado: consultas externas disponibles'
+                  : 'Sin conexión: tus apuntes y glosario local siguen disponibles'
+              }
+              className={`inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-md font-medium border ${
+                isOnline
+                  ? 'bg-stone-100 dark:bg-stone-900 text-stone-600 dark:text-stone-400 border-stone-200 dark:border-stone-800'
+                  : 'bg-amber-50 dark:bg-amber-950/50 text-amber-800 dark:text-amber-300 border-amber-200 dark:border-amber-800/60'
+              }`}
+            >
               {isOnline ? (
-                <span
-                  title="Conexión en línea activa"
-                  className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 font-medium"
-                >
-                  <Wifi className="w-3 h-3" /> Online
-                </span>
+                <>
+                  <Wifi className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+                  <span className="hidden xs:inline">En línea</span>
+                </>
               ) : (
-                <span
-                  title="Modo sin conexión: base de datos local 100% operativa"
-                  className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 font-medium"
-                >
-                  <WifiOff className="w-3 h-3" /> Local
-                </span>
+                <>
+                  <WifiOff className="w-3 h-3" />
+                  <span>Sin conexión</span>
+                </>
               )}
-              {aiAvailable && (
-                <span
-                  title="Grounding con Gemini & Google Search disponible"
-                  className="hidden sm:inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300"
-                >
-                  <Sparkles className="w-3 h-3 text-indigo-500" /> Grounding IA
-                </span>
-              )}
-            </div>
+            </span>
           </div>
 
+          {/* Desktop Navigation Tabs (visible on md and larger) */}
+          <nav
+            aria-label="Navegación principal de escritorio"
+            className="hidden md:flex items-center gap-1 bg-stone-100 dark:bg-stone-900 p-1 rounded-xl border border-stone-200/80 dark:border-stone-800"
+          >
+            {desktopTabs.map((item) => {
+              const isActive = activeTab === item.id;
+              const Icon = item.icon;
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  aria-current={isActive ? 'page' : undefined}
+                  onClick={() => {
+                    setActiveNote(null);
+                    setActiveTab(item.id);
+                  }}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600 ${
+                    isActive
+                      ? 'bg-white dark:bg-stone-800 text-indigo-600 dark:text-indigo-400 font-semibold shadow-2xs'
+                      : 'text-stone-600 dark:text-stone-400 hover:text-stone-900 dark:hover:text-stone-200'
+                  }`}
+                >
+                  <Icon className="w-3.5 h-3.5" />
+                  <span>{item.label}</span>
+                  {typeof item.count === 'number' && item.count > 0 && (
+                    <span
+                      className={`text-[11px] px-1.5 py-0.2 rounded-md ${
+                        isActive
+                          ? 'bg-indigo-50 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300'
+                          : 'text-stone-500 dark:text-stone-500'
+                      }`}
+                    >
+                      {item.count}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </nav>
+
+          {/* Right Quick Actions (Notes search & new notebook) */}
           <div className="flex items-center gap-1">
-            <button
-              onClick={() => setIsSearchOpen(!isSearchOpen)}
-              className="p-2 rounded-full text-slate-600 dark:text-zinc-300 hover:bg-slate-200/60 dark:hover:bg-zinc-800 transition"
-              aria-label="Buscar"
-            >
-              <Search className="w-4.5 h-4.5" />
-            </button>
             {activeTab === 'notes' && (
-              <button
-                onClick={handleOpenFolderModal}
-                className="p-2 rounded-full text-slate-600 dark:text-zinc-300 hover:bg-slate-200/60 dark:hover:bg-zinc-800 transition"
-                title="Crear nuevo cuaderno"
-              >
-                <FolderPlus className="w-4.5 h-4.5" />
-              </button>
+              <>
+                <button
+                  type="button"
+                  onClick={() => setIsSearchOpen(!isSearchOpen)}
+                  aria-expanded={isSearchOpen}
+                  aria-label={isSearchOpen ? 'Cerrar búsqueda de apuntes' : 'Buscar en mis apuntes'}
+                  className={`inline-flex items-center justify-center min-w-[44px] min-h-[44px] sm:min-h-[38px] sm:px-3 rounded-xl text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600 ${
+                    isSearchOpen || searchQuery
+                      ? 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/60'
+                      : 'text-stone-700 dark:text-stone-300 hover:bg-stone-200/60 dark:hover:bg-stone-800'
+                  }`}
+                >
+                  <Search className="w-4 h-4" />
+                  <span className="hidden sm:inline ml-1.5">Buscar</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleOpenFolderModal}
+                  aria-label="Crear cuaderno"
+                  className="inline-flex items-center justify-center min-w-[44px] min-h-[44px] sm:min-h-[38px] sm:px-3 rounded-xl text-xs font-medium text-stone-700 dark:text-stone-300 hover:bg-stone-200/60 dark:hover:bg-stone-800 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600"
+                  title="Crear cuaderno o carpeta"
+                >
+                  <FolderPlus className="w-4 h-4" />
+                  <span className="hidden sm:inline ml-1.5">Nuevo cuaderno</span>
+                </button>
+              </>
             )}
           </div>
         </div>
 
-        {/* Large One UI Header Title */}
-        <div className="py-1">
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-zinc-50 tracking-tight">
+        {/* Page Title & Contextual Subtitle */}
+        <div className="mt-2 flex flex-col sm:flex-row sm:items-baseline sm:justify-between gap-0.5">
+          <h1 className="text-xl sm:text-2xl font-bold text-stone-900 dark:text-stone-50 tracking-tight">
             {getHeaderTitle()}
           </h1>
-          <p className="text-xs text-slate-500 dark:text-zinc-400 mt-0.5">
+          <p className="text-xs text-stone-600 dark:text-stone-400">
             {getHeaderSubtitle()}
           </p>
         </div>
 
-        {/* Expandable Search Input */}
-        {isSearchOpen && (
-          <div className="mt-2.5 mb-1 relative animate-scaleIn">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+        {/* Expandable Search Input for Notes */}
+        {activeTab === 'notes' && (isSearchOpen || searchQuery.trim().length > 0) && (
+          <div className="mt-3 relative">
+            <label htmlFor="notes-global-search" className="sr-only">
+              Buscar apuntes por título, materia o etiqueta
+            </label>
+            <Search className="w-4 h-4 text-stone-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
             <input
-              type="text"
+              id="notes-global-search"
+              type="search"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Buscar por término, materia o concepto..."
-              autoFocus
-              className="w-full pl-10 pr-10 py-2 text-xs rounded-2xl bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 text-slate-900 dark:text-zinc-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 shadow-xs"
+              placeholder="Buscar por título, materia, concepto o etiqueta…"
+              autoFocus={isSearchOpen}
+              className="w-full min-h-[44px] pl-10 pr-10 py-2 text-base sm:text-sm rounded-xl bg-white dark:bg-stone-900 border border-stone-300 dark:border-stone-700 text-stone-900 dark:text-stone-100 placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-indigo-600 focus:border-transparent"
             />
             {searchQuery && (
               <button
+                type="button"
                 onClick={() => setSearchQuery('')}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                aria-label="Limpiar búsqueda"
+                className="absolute right-2 top-1/2 -translate-y-1/2 p-2 text-stone-400 hover:text-stone-700 dark:hover:text-stone-200 rounded-lg"
               >
-                <X className="w-3.5 h-3.5" />
+                <X className="w-4 h-4" />
               </button>
             )}
           </div>
         )}
 
-        {/* Horizontal Chips: Folders and Subjects (Only on Notes tab) */}
+        {/* Horizontal Filter Bar: Notebooks & Subjects (Notes tab only) */}
         {activeTab === 'notes' && (
-          <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-2 text-xs -mx-1 px-1">
+          <div
+            role="region"
+            aria-label="Filtrar apuntes por cuaderno o materia"
+            className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pt-2.5 pb-0.5 text-xs -mx-1 px-1"
+          >
             <button
+              type="button"
               onClick={() => {
                 setSelectedFolderId(null);
                 setSelectedSubject(null);
               }}
-              className={`px-3 py-1.5 rounded-full whitespace-nowrap font-medium transition ${
+              className={`min-h-[36px] px-3 py-1.5 rounded-lg whitespace-nowrap font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600 ${
                 selectedFolderId === null && selectedSubject === null
-                  ? 'bg-indigo-600 text-white shadow-xs'
-                  : 'bg-slate-100 dark:bg-zinc-800/70 text-slate-600 dark:text-zinc-400 border border-transparent hover:border-slate-300 dark:hover:border-zinc-700'
+                  ? 'bg-indigo-600 text-white font-semibold'
+                  : 'bg-white dark:bg-stone-900 text-stone-700 dark:text-stone-300 border border-stone-200 dark:border-stone-800 hover:bg-stone-100 dark:hover:bg-stone-800'
               }`}
             >
-              Todos los apuntes
+              Todos ({notes.length})
             </button>
 
             {folders.map((f) => {
@@ -282,21 +382,24 @@ export const OneUIHeader: React.FC = () => {
               return (
                 <button
                   key={f.id}
+                  type="button"
                   onClick={() => {
                     setSelectedFolderId(isSelected ? null : f.id);
                   }}
-                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full whitespace-nowrap font-medium transition ${
+                  className={`inline-flex items-center gap-1.5 min-h-[36px] px-3 py-1.5 rounded-lg whitespace-nowrap font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600 ${
                     isSelected
-                      ? 'bg-indigo-600 text-white shadow-xs'
-                      : 'bg-slate-100 dark:bg-zinc-800/70 text-slate-600 dark:text-zinc-400 border border-transparent hover:border-slate-300 dark:hover:border-zinc-700'
+                      ? 'bg-indigo-600 text-white font-semibold'
+                      : 'bg-white dark:bg-stone-900 text-stone-700 dark:text-stone-300 border border-stone-200 dark:border-stone-800 hover:bg-stone-100 dark:hover:bg-stone-800'
                   }`}
                 >
                   <span
-                    className="w-2 h-2 rounded-full"
-                    style={{ backgroundColor: f.color }}
+                    className="w-2 h-2 rounded-full shrink-0"
+                    style={{ backgroundColor: isSelected ? '#ffffff' : f.color }}
                   />
                   <span>{f.name}</span>
-                  <span className="text-[10px] opacity-75">({count})</span>
+                  <span className={`text-[11px] ${isSelected ? 'text-indigo-100' : 'text-stone-400 dark:text-stone-500'}`}>
+                    {count}
+                  </span>
                 </button>
               );
             })}
@@ -306,17 +409,18 @@ export const OneUIHeader: React.FC = () => {
               return (
                 <button
                   key={sub}
+                  type="button"
                   onClick={() => {
                     setSelectedSubject(isSelected ? null : sub);
                     setSelectedFolderId(null);
                   }}
-                  className={`px-3 py-1.5 rounded-full whitespace-nowrap font-medium transition ${
+                  className={`min-h-[36px] px-3 py-1.5 rounded-lg whitespace-nowrap font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600 ${
                     isSelected
-                      ? 'bg-slate-800 dark:bg-zinc-100 text-white dark:text-zinc-900 shadow-sm'
-                      : 'bg-slate-100 dark:bg-zinc-800/70 text-slate-600 dark:text-zinc-400 border border-transparent hover:border-slate-300 dark:hover:border-zinc-700'
+                      ? 'bg-stone-800 dark:bg-stone-100 text-white dark:text-stone-900 font-semibold'
+                      : 'bg-stone-100 dark:bg-stone-900 text-stone-600 dark:text-stone-400 border border-stone-200/70 dark:border-stone-800 hover:bg-stone-200/70 dark:hover:bg-stone-800'
                   }`}
                 >
-                  #{sub}
+                  {sub}
                 </button>
               );
             })}
@@ -324,28 +428,33 @@ export const OneUIHeader: React.FC = () => {
         )}
       </div>
 
-      {/* New Notebook / Folder Creation Screen */}
+      {/* New Notebook / Folder Creation Modal */}
       {showFolderModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-fadeIn">
-          <div className="w-full max-w-sm rounded-3xl bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 p-6 shadow-2xl relative animate-scaleIn">
-            {/* Modal Header with Android Back Button */}
-            <div className="flex items-center justify-between gap-3 mb-3 pb-3 border-b border-slate-100 dark:border-zinc-800">
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="create-folder-title"
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-stone-950/60 backdrop-blur-xs p-0 sm:p-4"
+        >
+          <div className="w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl bg-white dark:bg-stone-900 border-t sm:border border-stone-200 dark:border-stone-800 p-5 sm:p-6 shadow-xl relative safe-area-bottom">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between gap-3 mb-4 pb-3 border-b border-stone-200 dark:border-stone-800">
               <div className="flex items-center gap-2">
                 <button
                   type="button"
                   onClick={handleRequestClose}
-                  className="p-1.5 -ml-1 rounded-xl text-slate-600 dark:text-zinc-300 hover:bg-slate-100 dark:hover:bg-zinc-800 transition"
-                  title="Regresar a la pantalla anterior"
-                  aria-label="Atrás"
+                  className="inline-flex items-center justify-center w-10 h-10 -ml-1.5 rounded-xl text-stone-600 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-800 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600"
+                  title="Volver"
+                  aria-label="Volver"
                 >
-                  <ArrowLeft className="w-5 h-5 stroke-[2.2]" />
+                  <ArrowLeft className="w-5 h-5" />
                 </button>
                 <div>
-                  <h3 className="text-base font-bold text-slate-900 dark:text-zinc-100 leading-tight">
-                    Crear cuaderno
-                  </h3>
-                  <p className="text-[11px] text-slate-500 dark:text-zinc-400">
-                    Organización académica
+                  <h2 id="create-folder-title" className="text-base font-bold text-stone-900 dark:text-stone-100 leading-tight">
+                    Nuevo cuaderno
+                  </h2>
+                  <p className="text-xs text-stone-500 dark:text-stone-400">
+                    Agrupa tus apuntes por asignatura o seminario
                   </p>
                 </div>
               </div>
@@ -353,8 +462,8 @@ export const OneUIHeader: React.FC = () => {
               <button
                 type="button"
                 onClick={handleRequestClose}
-                className="p-1.5 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-zinc-200 transition"
-                title="Cerrar"
+                aria-label="Cerrar diálogo"
+                className="inline-flex items-center justify-center w-10 h-10 rounded-xl text-stone-400 hover:text-stone-700 dark:hover:text-stone-200 hover:bg-stone-100 dark:hover:bg-stone-800 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -362,66 +471,80 @@ export const OneUIHeader: React.FC = () => {
 
             <form onSubmit={handleCreateFolder} className="space-y-4">
               <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300 mb-1">
-                  Nombre del cuaderno o carpeta
+                <label
+                  htmlFor="folder-name-input"
+                  className="block text-xs font-semibold text-stone-800 dark:text-stone-200 mb-1.5"
+                >
+                  Nombre del cuaderno
                 </label>
                 <input
+                  id="folder-name-input"
                   type="text"
                   required
                   value={newFolderName}
                   onChange={(e) => setNewFolderName(e.target.value)}
-                  placeholder="Ej. Psicología Social"
+                  placeholder="Ej. Psicología del Desarrollo"
                   autoFocus
-                  className="w-full px-3.5 py-2 text-sm rounded-xl bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 text-slate-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
+                  className="w-full min-h-[44px] px-3.5 py-2 text-base sm:text-sm rounded-xl bg-stone-50 dark:bg-stone-800/80 border border-stone-300 dark:border-stone-700 text-stone-900 dark:text-stone-100 placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-indigo-600 focus:border-transparent"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300 mb-1">
-                  Materia o disciplina (opcional)
+                <label
+                  htmlFor="folder-subject-input"
+                  className="block text-xs font-semibold text-stone-800 dark:text-stone-200 mb-1.5"
+                >
+                  Asignatura o área (opcional)
                 </label>
                 <input
+                  id="folder-subject-input"
                   type="text"
                   value={newFolderSubject}
                   onChange={(e) => setNewFolderSubject(e.target.value)}
                   placeholder="Ej. Psicología Cognitiva"
-                  className="w-full px-3.5 py-2 text-sm rounded-xl bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 text-slate-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
+                  className="w-full min-h-[44px] px-3.5 py-2 text-base sm:text-sm rounded-xl bg-stone-50 dark:bg-stone-800/80 border border-stone-300 dark:border-stone-700 text-stone-900 dark:text-stone-100 placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-indigo-600 focus:border-transparent"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-zinc-300 mb-2">
-                  Color distintivo
-                </label>
-                <div className="flex items-center gap-2">
-                  {['#6366F1', '#EC4899', '#06B6D4', '#10B981', '#F59E0B', '#8B5CF6', '#EF4444'].map((c) => (
-                    <button
-                      type="button"
-                      key={c}
-                      onClick={() => setNewFolderColor(c)}
-                      className={`w-7 h-7 rounded-full transition-transform ${
-                        newFolderColor === c
-                          ? 'scale-125 ring-2 ring-indigo-500 ring-offset-2 dark:ring-offset-zinc-900'
-                          : 'opacity-80'
-                      }`}
-                      style={{ backgroundColor: c }}
-                    />
-                  ))}
+                <span className="block text-xs font-semibold text-stone-800 dark:text-stone-200 mb-2">
+                  Color de referencia
+                </span>
+                <div className="flex items-center gap-2.5 flex-wrap">
+                  {folderColors.map((c) => {
+                    const isSelected = newFolderColor === c.hex;
+                    return (
+                      <button
+                        type="button"
+                        key={c.hex}
+                        onClick={() => setNewFolderColor(c.hex)}
+                        aria-label={`Color ${c.name}`}
+                        aria-pressed={isSelected}
+                        className={`w-9 h-9 rounded-full flex items-center justify-center transition-transform focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600 ${
+                          isSelected
+                            ? 'ring-2 ring-stone-900 dark:ring-stone-100 ring-offset-2 dark:ring-offset-stone-900 scale-105'
+                            : 'opacity-85 hover:opacity-100'
+                        }`}
+                        style={{ backgroundColor: c.hex }}
+                      >
+                        {isSelected && <Check className="w-4 h-4 text-white stroke-[2.5]" />}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 
-              <div className="flex items-center justify-between gap-2 pt-2">
+              <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-stone-100 dark:border-stone-800">
                 <button
                   type="button"
                   onClick={handleRequestClose}
-                  className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium rounded-xl text-slate-600 dark:text-zinc-400 hover:bg-slate-100 dark:hover:bg-zinc-800 transition"
+                  className="min-h-[44px] px-4 py-2 text-xs font-semibold rounded-xl border border-stone-200 dark:border-stone-700 text-stone-700 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-800 transition-colors"
                 >
-                  <ArrowLeft className="w-3.5 h-3.5" />
-                  <span>Atrás</span>
+                  Cancelar
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 text-xs font-semibold rounded-xl bg-indigo-600 text-white hover:bg-indigo-700 transition shadow-sm active:scale-95"
+                  className="min-h-[44px] px-5 py-2 text-xs font-semibold rounded-xl bg-indigo-600 text-white hover:bg-indigo-700 transition-colors"
                 >
                   Guardar cuaderno
                 </button>
@@ -430,30 +553,35 @@ export const OneUIHeader: React.FC = () => {
 
             {/* Sub-dialog: Discard unsaved changes confirmation */}
             {showDiscardConfirm && (
-              <div className="absolute inset-0 z-10 flex flex-col items-center justify-center p-6 bg-white/95 dark:bg-zinc-900/95 backdrop-blur-xs rounded-3xl animate-scaleIn text-center">
-                <div className="w-10 h-10 rounded-2xl bg-amber-100 dark:bg-amber-950/70 text-amber-600 dark:text-amber-400 flex items-center justify-center mb-3">
-                  <AlertTriangle className="w-5 h-5 stroke-[2.2]" />
+              <div
+                role="alertdialog"
+                aria-modal="true"
+                aria-labelledby="discard-folder-title"
+                className="absolute inset-0 z-10 flex flex-col items-center justify-center p-6 bg-white/98 dark:bg-stone-900/98 rounded-t-2xl sm:rounded-2xl text-center"
+              >
+                <div className="w-10 h-10 rounded-xl bg-amber-50 dark:bg-amber-950/70 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-800/60 flex items-center justify-center mb-3">
+                  <AlertTriangle className="w-5 h-5" />
                 </div>
-                <h4 className="font-bold text-sm text-slate-900 dark:text-zinc-100 mb-1">
-                  ¿Descartar cambios del cuaderno?
-                </h4>
-                <p className="text-xs text-slate-500 dark:text-zinc-400 mb-4 max-w-xs leading-relaxed">
-                  Has ingresado datos que no se han guardado. Si sales ahora, se perderán las modificaciones.
+                <h3 id="discard-folder-title" className="font-bold text-sm text-stone-900 dark:text-stone-100 mb-1">
+                  ¿Descartar este cuaderno sin guardar?
+                </h3>
+                <p className="text-xs text-stone-600 dark:text-stone-400 mb-5 max-w-xs leading-relaxed">
+                  Has escrito datos para el nuevo cuaderno. Si sales ahora, no se guardarán.
                 </p>
-                <div className="flex items-center gap-2 w-full justify-center">
+                <div className="flex items-center gap-2.5 w-full max-w-xs">
                   <button
                     type="button"
                     onClick={() => setShowDiscardConfirm(false)}
-                    className="flex-1 py-2 px-3 text-xs font-medium rounded-xl border border-slate-200 dark:border-zinc-700 text-slate-700 dark:text-zinc-300 hover:bg-slate-100 dark:hover:bg-zinc-800 transition"
+                    className="flex-1 min-h-[44px] py-2 px-3 text-xs font-semibold rounded-xl border border-stone-300 dark:border-stone-700 text-stone-800 dark:text-stone-200 hover:bg-stone-100 dark:hover:bg-stone-800 transition-colors"
                   >
                     Seguir editando
                   </button>
                   <button
                     type="button"
                     onClick={handleForceCloseFolderModal}
-                    className="flex-1 py-2 px-3 text-xs font-semibold rounded-xl bg-red-600 text-white hover:bg-red-700 transition shadow-xs"
+                    className="flex-1 min-h-[44px] py-2 px-3 text-xs font-semibold rounded-xl bg-red-600 text-white hover:bg-red-700 transition-colors"
                   >
-                    Descartar y salir
+                    Descartar
                   </button>
                 </div>
               </div>

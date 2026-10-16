@@ -211,89 +211,102 @@ class NexoNotesDatabase {
     if (this.db) return this.db;
     if (this.initPromise) return this.initPromise;
 
-    this.initPromise = new Promise((resolve, reject) => {
-      const request = indexedDB.open(DB_NAME, DB_VERSION);
+    this.initPromise = (async () => {
+      try {
+        const database = await new Promise<IDBDatabase>((resolve, reject) => {
+          const request = indexedDB.open(DB_NAME, DB_VERSION);
 
-      request.onerror = () => {
-        console.error('Error abriendo IndexedDB:', request.error);
-        reject(request.error);
-      };
+          request.onerror = () => {
+            console.error('Error abriendo IndexedDB:', request.error);
+            reject(request.error);
+          };
 
-      request.onsuccess = () => {
-        this.db = request.result;
-        resolve(this.db);
-      };
+          request.onsuccess = () => {
+            resolve(request.result);
+          };
 
-      request.onupgradeneeded = (event) => {
-        const db = (event.target as IDBOpenDBRequest).result;
+          request.onupgradeneeded = (event) => {
+            const db = (event.target as IDBOpenDBRequest).result;
 
-        // Notes Store
-        if (!db.objectStoreNames.contains('notes')) {
-          const notesStore = db.createObjectStore('notes', { keyPath: 'id' });
-          notesStore.createIndex('folderId', 'folderId', { unique: false });
-          notesStore.createIndex('subject', 'subject', { unique: false });
-          notesStore.createIndex('updatedAt', 'updatedAt', { unique: false });
-          notesStore.createIndex('isPinned', 'isPinned', { unique: false });
-        }
+            // Notes Store
+            if (!db.objectStoreNames.contains('notes')) {
+              const notesStore = db.createObjectStore('notes', { keyPath: 'id' });
+              notesStore.createIndex('folderId', 'folderId', { unique: false });
+              notesStore.createIndex('subject', 'subject', { unique: false });
+              notesStore.createIndex('updatedAt', 'updatedAt', { unique: false });
+              notesStore.createIndex('isPinned', 'isPinned', { unique: false });
+            }
 
-        // Folders Store
-        if (!db.objectStoreNames.contains('folders')) {
-          const foldersStore = db.createObjectStore('folders', { keyPath: 'id' });
-          foldersStore.createIndex('subject', 'subject', { unique: false });
-        }
+            // Folders Store
+            if (!db.objectStoreNames.contains('folders')) {
+              const foldersStore = db.createObjectStore('folders', { keyPath: 'id' });
+              foldersStore.createIndex('subject', 'subject', { unique: false });
+            }
 
-        // Glossary Store
-        if (!db.objectStoreNames.contains('glossary')) {
-          const glossaryStore = db.createObjectStore('glossary', { keyPath: 'id' });
-          glossaryStore.createIndex('normalizedName', 'normalizedName', { unique: false });
-          glossaryStore.createIndex('academicField', 'academicField', { unique: false });
-          glossaryStore.createIndex('noteId', 'noteId', { unique: false });
-          glossaryStore.createIndex('isFavorite', 'isFavorite', { unique: false });
-        }
+            // Glossary Store
+            if (!db.objectStoreNames.contains('glossary')) {
+              const glossaryStore = db.createObjectStore('glossary', { keyPath: 'id' });
+              glossaryStore.createIndex('normalizedName', 'normalizedName', { unique: false });
+              glossaryStore.createIndex('academicField', 'academicField', { unique: false });
+              glossaryStore.createIndex('noteId', 'noteId', { unique: false });
+              glossaryStore.createIndex('isFavorite', 'isFavorite', { unique: false });
+            }
 
-        // Documents Store
-        if (!db.objectStoreNames.contains('documents')) {
-          const docsStore = db.createObjectStore('documents', { keyPath: 'id' });
-          docsStore.createIndex('fileType', 'fileType', { unique: false });
-          docsStore.createIndex('createdAt', 'createdAt', { unique: false });
-        }
+            // Documents Store
+            if (!db.objectStoreNames.contains('documents')) {
+              const docsStore = db.createObjectStore('documents', { keyPath: 'id' });
+              docsStore.createIndex('fileType', 'fileType', { unique: false });
+              docsStore.createIndex('createdAt', 'createdAt', { unique: false });
+            }
 
-        // Preferences Store
-        if (!db.objectStoreNames.contains('preferences')) {
-          db.createObjectStore('preferences', { keyPath: 'key' });
-        }
+            // Preferences Store
+            if (!db.objectStoreNames.contains('preferences')) {
+              db.createObjectStore('preferences', { keyPath: 'key' });
+            }
 
-        // Analysis Cache Store
-        if (!db.objectStoreNames.contains('analysisCache')) {
-          const cacheStore = db.createObjectStore('analysisCache', { keyPath: 'termKey' });
-          cacheStore.createIndex('analyzedAt', 'analyzedAt', { unique: false });
-        }
-      };
-    });
+            // Analysis Cache Store
+            if (!db.objectStoreNames.contains('analysisCache')) {
+              const cacheStore = db.createObjectStore('analysisCache', { keyPath: 'termKey' });
+              cacheStore.createIndex('analyzedAt', 'analyzedAt', { unique: false });
+            }
+          };
+        });
 
-    const database = await this.initPromise;
-    await this.seedDefaultsIfEmpty(database);
-    return database;
+        await this.seedDefaultsIfEmpty(database);
+        this.db = database;
+        return database;
+      } catch (err) {
+        this.initPromise = null;
+        throw err;
+      }
+    })();
+
+    return this.initPromise;
   }
 
-  private async seedDefaultsIfEmpty(db: IDBDatabase) {
-    const tx = db.transaction(['notes', 'folders', 'glossary', 'documents', 'preferences'], 'readwrite');
-    const notesStore = tx.objectStore('notes');
-    const foldersStore = tx.objectStore('folders');
-    const glossaryStore = tx.objectStore('glossary');
-    const docsStore = tx.objectStore('documents');
-    const prefStore = tx.objectStore('preferences');
+  private seedDefaultsIfEmpty(db: IDBDatabase): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(['notes', 'folders', 'glossary', 'documents', 'preferences'], 'readwrite');
+      const notesStore = tx.objectStore('notes');
+      const foldersStore = tx.objectStore('folders');
+      const glossaryStore = tx.objectStore('glossary');
+      const docsStore = tx.objectStore('documents');
+      const prefStore = tx.objectStore('preferences');
 
-    const countReq = notesStore.count();
-    countReq.onsuccess = () => {
-      if (countReq.result === 0) {
-        INITIAL_FOLDERS.forEach((f) => foldersStore.put(f));
-        INITIAL_NOTES.forEach((n) => notesStore.put(n));
-        INITIAL_CONCEPTS.forEach((c) => glossaryStore.put(c));
-        INITIAL_DOCUMENTS.forEach((d) => docsStore.put(d));
-        prefStore.put({ key: 'appPreferences', value: DEFAULT_PREFERENCES });
-      }
-    };
+      const countReq = notesStore.count();
+      countReq.onsuccess = () => {
+        if (countReq.result === 0) {
+          INITIAL_FOLDERS.forEach((f) => foldersStore.put(f));
+          INITIAL_NOTES.forEach((n) => notesStore.put(n));
+          INITIAL_CONCEPTS.forEach((c) => glossaryStore.put(c));
+          INITIAL_DOCUMENTS.forEach((d) => docsStore.put(d));
+          prefStore.put({ key: 'appPreferences', value: DEFAULT_PREFERENCES });
+        }
+      };
+
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
   }
 
   // === NOTES DAO ===
@@ -375,11 +388,23 @@ class NexoNotesDatabase {
   async deleteFolder(id: string): Promise<void> {
     const db = await this.getDB();
     return new Promise((resolve, reject) => {
-      const tx = db.transaction('folders', 'readwrite');
-      const store = tx.objectStore('folders');
-      const request = store.delete(id);
-      request.onsuccess = () => resolve();
-      request.onerror = () => reject(request.error);
+      const tx = db.transaction(['folders', 'notes'], 'readwrite');
+      const foldersStore = tx.objectStore('folders');
+      const notesStore = tx.objectStore('notes');
+
+      foldersStore.delete(id);
+
+      const folderIdx = notesStore.index('folderId');
+      const getNotesReq = folderIdx.getAll(id);
+      getNotesReq.onsuccess = () => {
+        const affectedNotes = (getNotesReq.result as NoteEntity[]) || [];
+        affectedNotes.forEach((n) => {
+          notesStore.put({ ...n, folderId: undefined });
+        });
+      };
+
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
     });
   }
 
@@ -404,12 +429,42 @@ class NexoNotesDatabase {
 
   async saveConcept(concept: ConceptEntity): Promise<ConceptEntity> {
     const db = await this.getDB();
+    const normalized = (concept.normalizedName || concept.termName).trim().toLowerCase();
     return new Promise((resolve, reject) => {
       const tx = db.transaction('glossary', 'readwrite');
       const store = tx.objectStore('glossary');
-      const request = store.put(concept);
-      request.onsuccess = () => resolve(concept);
-      request.onerror = () => reject(request.error);
+      const idx = store.index('normalizedName');
+      const matchReq = idx.getAll(normalized);
+
+      let mergedConcept: ConceptEntity = {
+        ...concept,
+        normalizedName: normalized,
+      };
+
+      matchReq.onsuccess = () => {
+        const matches = (matchReq.result as ConceptEntity[]) || [];
+        const existing = matches.find((c) => c.id === concept.id) || matches[0];
+        if (existing) {
+          mergedConcept = {
+            ...existing,
+            ...concept,
+            id: existing.id,
+            normalizedName: normalized,
+            createdAt: existing.createdAt || concept.createdAt,
+            isFavorite: concept.isFavorite ?? existing.isFavorite,
+            userNotes: concept.userNotes !== undefined ? concept.userNotes : existing.userNotes,
+          };
+          matches.forEach((m) => {
+            if (m.id !== existing.id) {
+              store.delete(m.id);
+            }
+          });
+        }
+        store.put(mergedConcept);
+      };
+
+      tx.oncomplete = () => resolve(mergedConcept);
+      tx.onerror = () => reject(tx.error);
     });
   }
 
@@ -418,7 +473,40 @@ class NexoNotesDatabase {
     return new Promise((resolve, reject) => {
       const tx = db.transaction('glossary', 'readwrite');
       const store = tx.objectStore('glossary');
-      concepts.forEach((c) => store.put(c));
+      const allReq = store.getAll();
+
+      allReq.onsuccess = () => {
+        const existingList = (allReq.result as ConceptEntity[]) || [];
+        const byNormalized = new Map<string, ConceptEntity>();
+        existingList.forEach((item) => {
+          const key = (item.normalizedName || item.termName).trim().toLowerCase();
+          if (!byNormalized.has(key)) {
+            byNormalized.set(key, item);
+          }
+        });
+
+        concepts.forEach((c) => {
+          const normalized = (c.normalizedName || c.termName).trim().toLowerCase();
+          const existing = byNormalized.get(normalized);
+          const merged: ConceptEntity = existing
+            ? {
+                ...existing,
+                ...c,
+                id: existing.id,
+                normalizedName: normalized,
+                createdAt: existing.createdAt || c.createdAt,
+                isFavorite: c.isFavorite ?? existing.isFavorite,
+                userNotes: c.userNotes !== undefined ? c.userNotes : existing.userNotes,
+              }
+            : {
+                ...c,
+                normalizedName: normalized,
+              };
+          byNormalized.set(normalized, merged);
+          store.put(merged);
+        });
+      };
+
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
     });

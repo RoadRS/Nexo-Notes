@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
-import { ConceptEntity, VerificationStatus } from '../../types/models';
+import { ConceptEntity } from '../../types/models';
 import {
   BookOpen,
   Search,
@@ -8,15 +8,11 @@ import {
   ExternalLink,
   Trash2,
   Edit3,
-  Calendar,
   FileText,
-  Filter,
   CheckCircle2,
   AlertTriangle,
-  XCircle,
-  Clock,
-  Sparkles,
   FolderArchive,
+  X,
 } from 'lucide-react';
 
 export const GlossaryView: React.FC = () => {
@@ -34,6 +30,27 @@ export const GlossaryView: React.FC = () => {
   const [selectedConcept, setSelectedConcept] = useState<ConceptEntity | null>(null);
   const [userNoteText, setUserNoteText] = useState('');
   const [isEditingUserNotes, setIsEditingUserNotes] = useState(false);
+
+  // Keep selectedConcept reactive with global glossary updates (e.g. favorite toggle)
+  const activeConcept = selectedConcept
+    ? glossary.find((c) => c.id === selectedConcept.id) || selectedConcept
+    : null;
+
+  // Close concept detail sheet on Escape
+  useEffect(() => {
+    if (!selectedConcept) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (isEditingUserNotes) {
+          setIsEditingUserNotes(false);
+        } else {
+          setSelectedConcept(null);
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedConcept, isEditingUserNotes]);
 
   // Filter glossary concepts
   const filteredConcepts = glossary.filter((c) => {
@@ -65,9 +82,9 @@ export const GlossaryView: React.FC = () => {
   };
 
   const handleSaveUserNotes = async () => {
-    if (!selectedConcept) return;
+    if (!activeConcept) return;
     const updated: ConceptEntity = {
-      ...selectedConcept,
+      ...activeConcept,
       userNotes: userNoteText.trim(),
       updatedAt: Date.now(),
     };
@@ -77,131 +94,202 @@ export const GlossaryView: React.FC = () => {
     showNotification('Notas personales guardadas.', 'success');
   };
 
+  const favCount = glossary.filter((c) => c.isFavorite).length;
+  const verifiedCount = glossary.filter((c) => c.verificationStatus === 'verificado').length;
+  const discrepancyCount = glossary.filter((c) => c.verificationStatus === 'discrepancia').length;
+  const unverifiedCount = glossary.filter((c) => c.verificationStatus === 'no_verificado').length;
+
+  const filterTabs = [
+    { id: 'all', label: `Todos (${glossary.length})`, icon: null },
+    { id: 'fav', label: `Favoritos (${favCount})`, icon: Star },
+    { id: 'verificado', label: `Verificados (${verifiedCount})`, icon: CheckCircle2 },
+    ...(discrepancyCount > 0
+      ? [{ id: 'discrepancia', label: `Discrepancias (${discrepancyCount})`, icon: AlertTriangle }]
+      : []),
+    { id: 'no_verificado', label: `Contextuales (${unverifiedCount})`, icon: BookOpen },
+  ];
+
   return (
-    <div className="max-w-xl mx-auto px-4 pb-28 pt-2">
-      {/* Search & Filter Bar */}
-      <div className="space-y-2 mb-4">
+    <div className="max-w-5xl mx-auto px-4 sm:px-6 pb-28 md:pb-16 pt-3">
+      {/* Search & Filter Controls */}
+      <div className="space-y-3 mb-5">
         <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 dark:text-zinc-500" />
+          <label htmlFor="glossary-search-input" className="sr-only">
+            Buscar conceptos en el glosario
+          </label>
+          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-stone-400 pointer-events-none" />
           <input
-            type="text"
+            id="glossary-search-input"
+            type="search"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Buscar conceptos, definiciones o materias..."
-            className="w-full pl-9 pr-4 py-2 text-xs rounded-xl bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 text-slate-900 dark:text-zinc-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
+            placeholder="Buscar término, definición, autor o área de psicología…"
+            className="w-full min-h-[44px] pl-10 pr-10 py-2 text-base sm:text-sm rounded-xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 text-stone-900 dark:text-stone-100 placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-indigo-600"
           />
+          {search && (
+            <button
+              type="button"
+              onClick={() => setSearch('')}
+              aria-label="Limpiar búsqueda del glosario"
+              className="absolute right-2 top-1/2 -translate-y-1/2 p-2 text-stone-400 hover:text-stone-700 dark:hover:text-stone-200 rounded-lg"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          )}
         </div>
 
         {/* Status filters */}
-        <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-1 text-xs">
-          {[
-            { id: 'all', label: `Todos (${glossary.length})` },
-            { id: 'fav', label: `⭐ Favoritos (${glossary.filter((c) => c.isFavorite).length})` },
-            { id: 'verificado', label: '✓ Verificados' },
-            { id: 'discrepancia', label: '⚠️ Discrepancias' },
-            { id: 'no_verificado', label: '✕ Sin verificar' },
-          ].map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setFilterStatus(tab.id)}
-              className={`px-3 py-1.5 rounded-full whitespace-nowrap font-medium transition ${
-                filterStatus === tab.id
-                  ? 'bg-indigo-600 text-white shadow-xs'
-                  : 'bg-white dark:bg-zinc-900 text-slate-600 dark:text-zinc-400 border border-slate-200 dark:border-zinc-800 hover:bg-slate-100 dark:hover:bg-zinc-800'
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
+        <div
+          role="region"
+          aria-label="Filtrar glosario por estado"
+          className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5 text-xs"
+        >
+          {filterTabs.map((tab) => {
+            const Icon = tab.icon;
+            const isActive = filterStatus === tab.id;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setFilterStatus(tab.id)}
+                aria-pressed={isActive}
+                className={`inline-flex items-center gap-1.5 min-h-[38px] px-3.5 py-1.5 rounded-xl whitespace-nowrap font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600 ${
+                  isActive
+                    ? 'bg-indigo-600 text-white font-semibold shadow-2xs'
+                    : 'bg-white dark:bg-stone-900 text-stone-700 dark:text-stone-300 border border-stone-200 dark:border-stone-800 hover:bg-stone-100 dark:hover:bg-stone-800'
+                }`}
+              >
+                {Icon && <Icon className="w-3.5 h-3.5 shrink-0" />}
+                <span>{tab.label}</span>
+              </button>
+            );
+          })}
         </div>
       </div>
 
       {/* Concepts list */}
       {filteredConcepts.length === 0 ? (
-        <div className="flex flex-col items-center justify-center text-center py-16 px-4">
-          <div className="w-14 h-14 rounded-2xl bg-indigo-50 dark:bg-indigo-950/50 flex items-center justify-center text-indigo-600 dark:text-indigo-400 mb-3 shadow-inner">
-            <BookOpen className="w-7 h-7 stroke-[1.8]" />
+        <div className="bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 rounded-2xl p-8 sm:p-12 text-center max-w-lg mx-auto my-6">
+          <div className="w-12 h-12 rounded-2xl bg-stone-100 dark:bg-stone-800 flex items-center justify-center text-stone-700 dark:text-stone-300 mx-auto mb-4">
+            <BookOpen className="w-6 h-6 stroke-[1.75]" />
           </div>
-          <h3 className="text-base font-bold text-slate-900 dark:text-zinc-100">
-            {search ? 'Sin resultados para la búsqueda' : 'Glosario vacío'}
-          </h3>
-          <p className="text-xs text-slate-500 dark:text-zinc-400 max-w-xs mt-1">
-            {search
-              ? 'Prueba con otra palabra clave o restablece los filtros.'
-              : 'Analiza tus notas o documentos con la herramienta de conceptos para incorporar términos académicos.'}
+          <h2 className="text-base font-bold text-stone-900 dark:text-stone-100">
+            {search || filterStatus !== 'all'
+              ? 'No se encontraron conceptos con este filtro'
+              : 'Tu glosario académico está vacío'}
+          </h2>
+          <p className="text-sm text-stone-600 dark:text-stone-400 mt-1.5 leading-relaxed">
+            {search || filterStatus !== 'all'
+              ? 'Prueba con otra palabra clave o restablece los filtros para ver todos los términos guardados.'
+              : 'Cuando extraigas conceptos desde tus apuntes o documentos PDF/PPTX y los guardes, aparecerán aquí organizados para tu estudio.'}
           </p>
+          {(search || filterStatus !== 'all') && (
+            <button
+              type="button"
+              onClick={() => {
+                setSearch('');
+                setFilterStatus('all');
+              }}
+              className="mt-5 inline-flex items-center justify-center min-h-[42px] px-4 py-2 rounded-xl bg-stone-100 dark:bg-stone-800 hover:bg-stone-200 dark:hover:bg-stone-700 text-xs font-semibold text-stone-800 dark:text-stone-200 transition-colors"
+            >
+              Restablecer filtros
+            </button>
+          )}
         </div>
       ) : (
-        <div className="space-y-3">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5 sm:gap-4">
           {filteredConcepts.map((concept) => {
             const sourceNote = getSourceNoteTitle(concept.noteId);
             return (
-              <div
+              <article
                 key={concept.id}
                 onClick={() => handleOpenConcept(concept)}
-                className="group relative bg-white dark:bg-zinc-900 border border-slate-200/80 dark:border-zinc-800/80 hover:border-indigo-400 dark:hover:border-indigo-600 rounded-2xl p-4 transition-all duration-200 cursor-pointer shadow-xs hover:shadow-md"
+                className="group relative bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 hover:border-stone-300 dark:hover:border-stone-700 rounded-2xl p-4 sm:p-5 transition-colors cursor-pointer shadow-2xs flex flex-col justify-between"
               >
-                <div className="flex items-start justify-between gap-2 mb-1.5">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <h3 className="font-bold text-sm text-slate-900 dark:text-zinc-50">
-                      {concept.termName}
-                    </h3>
-                    <span
-                      className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
-                        concept.verificationStatus === 'verificado'
-                          ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
-                          : concept.verificationStatus === 'discrepancia'
-                          ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
-                          : 'bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300'
+                <div>
+                  <div className="flex items-start justify-between gap-2 mb-2">
+                    <div className="min-w-0">
+                      <h3 className="font-bold text-base text-stone-900 dark:text-stone-100 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleOpenConcept(concept);
+                          }}
+                          className="text-left focus-visible:outline-none focus-visible:underline"
+                        >
+                          {concept.termName}
+                        </button>
+                      </h3>
+                      <div className="flex items-center gap-1.5 flex-wrap mt-1">
+                        {concept.verificationStatus === 'verificado' ? (
+                          <span className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200/60 dark:border-emerald-800/50">
+                            <CheckCircle2 className="w-3 h-3 shrink-0" />
+                            <span>Verificado</span>
+                          </span>
+                        ) : concept.verificationStatus === 'discrepancia' ? (
+                          <span className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-md bg-amber-50 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-200/60 dark:border-amber-800/50">
+                            <AlertTriangle className="w-3 h-3 shrink-0" />
+                            <span>Discrepancia</span>
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-md bg-stone-100 text-stone-700 dark:bg-stone-800 dark:text-stone-300">
+                            <BookOpen className="w-3 h-3 shrink-0" />
+                            <span>Contextual</span>
+                          </span>
+                        )}
+
+                        {concept.academicField && (
+                          <span className="text-[11px] font-medium text-stone-500 dark:text-stone-400">
+                            · {concept.academicField}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleFavoriteConcept(concept.id);
+                      }}
+                      aria-pressed={concept.isFavorite}
+                      aria-label={
+                        concept.isFavorite
+                          ? `Quitar ${concept.termName} de favoritos`
+                          : `Marcar ${concept.termName} como favorito`
+                      }
+                      className={`inline-flex items-center justify-center min-w-[38px] min-h-[38px] -mr-1 -mt-1 rounded-xl transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600 ${
+                        concept.isFavorite
+                          ? 'text-amber-500 bg-amber-50 dark:bg-amber-950/40'
+                          : 'text-stone-400 hover:text-stone-700 dark:text-stone-500 dark:hover:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-800'
                       }`}
                     >
-                      {concept.verificationStatus === 'verificado'
-                        ? '✓ Verificado'
-                        : concept.verificationStatus === 'discrepancia'
-                        ? '⚠️ Discrepancia'
-                        : '✕ No verificado'}
-                    </span>
-                    {concept.academicField && (
-                      <span className="text-[10px] uppercase font-semibold text-slate-400">
-                        #{concept.academicField}
-                      </span>
-                    )}
+                      <Star className={`w-4 h-4 ${concept.isFavorite ? 'fill-current' : ''}`} />
+                    </button>
                   </div>
 
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      toggleFavoriteConcept(concept.id);
-                    }}
-                    className={`p-1 rounded-lg transition ${
-                      concept.isFavorite
-                        ? 'text-amber-500 fill-amber-500'
-                        : 'text-slate-300 hover:text-slate-500 dark:text-zinc-600 dark:hover:text-zinc-400'
-                    }`}
-                  >
-                    <Star className={`w-4 h-4 ${concept.isFavorite ? 'fill-amber-500' : ''}`} />
-                  </button>
+                  <p className="text-sm text-stone-600 dark:text-stone-300 line-clamp-2 leading-relaxed mb-3.5">
+                    {concept.academicDefinition}
+                  </p>
                 </div>
 
-                <p className="text-xs text-slate-600 dark:text-zinc-300 line-clamp-2 leading-relaxed mb-2.5">
-                  {concept.academicDefinition}
-                </p>
-
-                <div className="flex items-center justify-between text-[11px] text-slate-400 dark:text-zinc-500 pt-2 border-t border-slate-100 dark:border-zinc-800/60">
-                  <div className="flex items-center gap-1.5 line-clamp-1">
+                <div className="flex items-center justify-between gap-2 text-xs text-stone-500 dark:text-stone-400 pt-2.5 border-t border-stone-100 dark:border-stone-800/80">
+                  <div className="flex items-center gap-1.5 min-w-0">
                     {concept.documentName ? (
-                      <span className="flex items-center gap-1 text-indigo-600 dark:text-indigo-400 font-medium">
-                        <FolderArchive className="w-3 h-3 shrink-0" />
+                      <span className="inline-flex items-center gap-1.5 text-stone-700 dark:text-stone-300 font-medium truncate">
+                        <FolderArchive className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
                         <span className="truncate">{concept.documentName}</span>
                         {concept.pageOrSlide && (
-                          <span className="text-[10px] text-slate-500 dark:text-zinc-400 shrink-0">
-                            (Pág./Diap. {concept.pageOrSlide})
+                          <span className="text-stone-500 dark:text-stone-400 shrink-0">
+                            (p. {concept.pageOrSlide})
                           </span>
                         )}
                       </span>
                     ) : sourceNote ? (
-                      <span className="flex items-center gap-1 text-indigo-600 dark:text-indigo-400 font-medium">
-                        <FileText className="w-3 h-3" /> {sourceNote}
+                      <span className="inline-flex items-center gap-1.5 text-stone-700 dark:text-stone-300 font-medium truncate">
+                        <FileText className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                        <span className="truncate">{sourceNote}</span>
                       </span>
                     ) : (
                       <span>Glosario general</span>
@@ -210,57 +298,87 @@ export const GlossaryView: React.FC = () => {
 
                   <div className="flex items-center gap-2 shrink-0">
                     {concept.sources && concept.sources.length > 0 && (
-                      <span className="text-[10px] font-semibold text-slate-500">
-                        {concept.sources.length} {concept.sources.length === 1 ? 'fuente' : 'fuentes'}
+                      <span className="font-medium text-stone-600 dark:text-stone-400">
+                        {concept.sources.length}{' '}
+                        {concept.sources.length === 1 ? 'fuente' : 'fuentes'}
                       </span>
                     )}
                     {concept.userNotes && (
-                      <span className="text-indigo-500 font-medium">Con notas</span>
+                      <span className="px-1.5 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 text-[11px] font-medium">
+                        Con nota
+                      </span>
                     )}
                   </div>
                 </div>
-              </div>
+              </article>
             );
           })}
         </div>
       )}
 
-      {/* Detailed Concept Modal Sheet */}
-      {selectedConcept && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-3 sm:p-5">
-          <div className="w-full max-w-lg max-h-[90vh] flex flex-col bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-3xl shadow-2xl overflow-hidden">
+      {/* Detailed Concept Modal / Bottom Sheet */}
+      {activeConcept && (
+        <div
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-xs p-0 sm:p-4"
+          onClick={() => setSelectedConcept(null)}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="glossary-concept-dialog-title"
+            onClick={(e) => e.stopPropagation()}
+            className="w-full sm:max-w-2xl max-h-[92vh] sm:max-h-[88vh] flex flex-col bg-white dark:bg-stone-900 border-t sm:border border-stone-200 dark:border-stone-800 rounded-t-3xl sm:rounded-2xl shadow-2xl overflow-hidden safe-area-bottom"
+          >
             {/* Sheet Header */}
-            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-950/40 shrink-0">
-              <div className="flex items-center gap-2">
+            <div className="flex items-start justify-between gap-3 px-5 py-4 border-b border-stone-200 dark:border-stone-800 bg-stone-50/70 dark:bg-stone-950/50 shrink-0">
+              <div className="flex items-start gap-2.5 min-w-0">
                 <button
-                  onClick={() => toggleFavoriteConcept(selectedConcept.id)}
-                  className="p-1 rounded-lg text-amber-500"
+                  type="button"
+                  onClick={() => toggleFavoriteConcept(activeConcept.id)}
+                  aria-pressed={activeConcept.isFavorite}
+                  aria-label={
+                    activeConcept.isFavorite ? 'Quitar de favoritos' : 'Añadir a favoritos'
+                  }
+                  className={`inline-flex items-center justify-center min-w-[40px] min-h-[40px] -ml-1 rounded-xl transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600 ${
+                    activeConcept.isFavorite
+                      ? 'text-amber-500 bg-amber-50 dark:bg-amber-950/40'
+                      : 'text-stone-400 hover:text-stone-700 dark:hover:text-stone-200'
+                  }`}
                 >
-                  <Star className={`w-5 h-5 ${selectedConcept.isFavorite ? 'fill-amber-500' : ''}`} />
+                  <Star className={`w-5 h-5 ${activeConcept.isFavorite ? 'fill-current' : ''}`} />
                 </button>
-                <div>
-                  <h2 className="font-bold text-base text-slate-900 dark:text-zinc-50 leading-tight">
-                    {selectedConcept.termName}
+                <div className="min-w-0 pt-0.5">
+                  <h2
+                    id="glossary-concept-dialog-title"
+                    className="font-bold text-lg text-stone-900 dark:text-stone-100 leading-snug"
+                  >
+                    {activeConcept.termName}
                   </h2>
-                  <p className="text-[11px] text-slate-500 dark:text-zinc-400">
-                    {selectedConcept.academicField}
-                  </p>
+                  {activeConcept.academicField && (
+                    <p className="text-xs font-medium text-stone-500 dark:text-stone-400 mt-0.5">
+                      {activeConcept.academicField}
+                    </p>
+                  )}
                 </div>
               </div>
-              <div className="flex items-center gap-1">
+
+              <div className="flex items-center gap-1.5 shrink-0">
                 <button
+                  type="button"
                   onClick={() => {
-                    deleteConcept(selectedConcept.id);
+                    deleteConcept(activeConcept.id);
                     setSelectedConcept(null);
                   }}
-                  className="p-1.5 rounded-xl text-slate-400 hover:text-red-500 transition"
+                  aria-label="Eliminar término del glosario"
+                  className="inline-flex items-center justify-center min-w-[40px] min-h-[40px] rounded-xl text-stone-500 dark:text-stone-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600"
                   title="Eliminar del glosario"
                 >
                   <Trash2 className="w-4 h-4" />
                 </button>
                 <button
+                  type="button"
                   onClick={() => setSelectedConcept(null)}
-                  className="px-2.5 py-1 text-xs font-semibold rounded-xl bg-slate-100 dark:bg-zinc-800 text-slate-700 dark:text-zinc-300"
+                  className="inline-flex items-center justify-center min-h-[40px] px-3.5 py-1.5 text-xs font-semibold rounded-xl bg-stone-100 dark:bg-stone-800 hover:bg-stone-200 dark:hover:bg-stone-700 text-stone-700 dark:text-stone-200 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600"
                 >
                   Cerrar
                 </button>
@@ -268,183 +386,218 @@ export const GlossaryView: React.FC = () => {
             </div>
 
             {/* Sheet Content */}
-            <div className="flex-1 overflow-y-auto p-5 space-y-4 text-xs">
-              {/* Verification & Query Status badge */}
-              <div className="flex items-center justify-between p-3 rounded-2xl bg-slate-50 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800">
-                <div>
-                  <span className="font-bold text-slate-700 dark:text-zinc-300 text-[11px]">
-                    Modalidad y Estado de Consulta
-                  </span>
-                  <div className="flex items-center gap-1.5 mt-0.5">
-                    {selectedConcept.queryStatus === 'contrastado_web' ? (
-                      <span className="text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1">
-                        <CheckCircle2 className="w-3.5 h-3.5" /> Contrastado con fuentes web (Google Grounding)
+            <div className="flex-1 overflow-y-auto p-5 sm:p-6 space-y-5 text-sm">
+              {/* Verification & Origin Bar */}
+              <div className="flex flex-wrap items-center justify-between gap-2 p-3.5 rounded-xl bg-stone-50 dark:bg-stone-950 border border-stone-200 dark:border-stone-800 text-xs">
+                <div className="flex items-center gap-2">
+                  {activeConcept.queryStatus === 'contrastado_web' ||
+                  activeConcept.verificationStatus === 'verificado' ? (
+                    <span className="text-emerald-700 dark:text-emerald-400 font-semibold inline-flex items-center gap-1.5">
+                      <CheckCircle2 className="w-4 h-4 shrink-0" />
+                      <span>
+                        {activeConcept.queryStatus === 'contrastado_web'
+                          ? 'Contrastado con fuentes académicas web'
+                          : 'Verificado académicamente'}
                       </span>
-                    ) : selectedConcept.queryStatus === 'fuentes_consultadas' ? (
-                      <span className="text-blue-600 dark:text-blue-400 font-semibold flex items-center gap-1">
-                        <Search className="w-3.5 h-3.5" /> Fuentes consultadas en Google Search
-                      </span>
-                    ) : selectedConcept.verificationStatus === 'verificado' ? (
-                      <span className="text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1">
-                        <CheckCircle2 className="w-3.5 h-3.5" /> Verificado académicamente
-                      </span>
-                    ) : (
-                      <span className="text-slate-600 dark:text-zinc-400 font-semibold flex items-center gap-1">
-                        <BookOpen className="w-3.5 h-3.5" /> Sin verificar (Definición contextual IA)
-                      </span>
-                    )}
-                  </div>
+                    </span>
+                  ) : activeConcept.queryStatus === 'fuentes_consultadas' ? (
+                    <span className="text-indigo-700 dark:text-indigo-300 font-semibold inline-flex items-center gap-1.5">
+                      <Search className="w-4 h-4 shrink-0" />
+                      <span>Fuentes externas consultadas</span>
+                    </span>
+                  ) : (
+                    <span className="text-stone-700 dark:text-stone-300 font-semibold inline-flex items-center gap-1.5">
+                      <BookOpen className="w-4 h-4 shrink-0 text-stone-500" />
+                      <span>Definición contextual del apunte</span>
+                    </span>
+                  )}
                 </div>
 
-                <div className="text-right">
-                  <span className="text-[10px] text-slate-400 block">
-                    {selectedConcept.consultedAt
-                      ? new Date(selectedConcept.consultedAt).toLocaleDateString('es-ES')
-                      : selectedConcept.lastCheckedAt
-                      ? new Date(selectedConcept.lastCheckedAt).toLocaleDateString('es-ES')
-                      : 'Reciente'}
-                  </span>
-                </div>
+                <span className="text-stone-500 dark:text-stone-400">
+                  {activeConcept.consultedAt
+                    ? new Date(activeConcept.consultedAt).toLocaleDateString('es-ES')
+                    : activeConcept.lastCheckedAt
+                    ? new Date(activeConcept.lastCheckedAt).toLocaleDateString('es-ES')
+                    : 'Guardado recientemente'}
+                </span>
               </div>
 
               {/* Document or Note Origin Provenance */}
-              {(selectedConcept.documentName || selectedConcept.noteId) && (
-                <div className="flex items-center justify-between p-2.5 rounded-2xl bg-indigo-50/60 dark:bg-indigo-950/40 border border-indigo-100 dark:border-indigo-900/50">
-                  <div className="flex items-center gap-2">
-                    {selectedConcept.documentName ? (
+              {(activeConcept.documentName || activeConcept.noteId) && (
+                <div className="flex items-center justify-between gap-2 px-3.5 py-2.5 rounded-xl bg-stone-100/70 dark:bg-stone-800/50 border border-stone-200/80 dark:border-stone-800 text-xs">
+                  <div className="flex items-center gap-2 min-w-0">
+                    {activeConcept.documentName ? (
                       <FolderArchive className="w-4 h-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
                     ) : (
                       <FileText className="w-4 h-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
                     )}
-                    <span className="font-semibold text-slate-800 dark:text-zinc-200 text-xs">
-                      {selectedConcept.documentName
-                        ? `Documento: ${selectedConcept.documentName}`
-                        : `Apunte: ${getSourceNoteTitle(selectedConcept.noteId)}`}
+                    <span className="font-medium text-stone-800 dark:text-stone-200 truncate">
+                      {activeConcept.documentName
+                        ? `Fuente: ${activeConcept.documentName}`
+                        : `Apunte: ${getSourceNoteTitle(activeConcept.noteId)}`}
                     </span>
                   </div>
-                  {selectedConcept.pageOrSlide && (
-                    <span className="text-[11px] font-bold px-2 py-0.5 rounded-lg bg-white dark:bg-zinc-800 text-indigo-700 dark:text-indigo-300 shadow-2xs">
-                      Pág./Diap. {selectedConcept.pageOrSlide}
+                  {activeConcept.pageOrSlide && (
+                    <span className="font-semibold px-2 py-0.5 rounded-md bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-700 text-stone-700 dark:text-stone-300 shrink-0">
+                      Pág. / Diap. {activeConcept.pageOrSlide}
                     </span>
                   )}
                 </div>
               )}
 
-              {/* Context of origin */}
-              {selectedConcept.context && (
-                <div className="p-3 rounded-2xl bg-slate-50 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800">
-                  <p className="font-bold text-slate-800 dark:text-zinc-200 text-[11px] mb-1">
-                    Oración de procedencia:
-                  </p>
-                  <p className="text-slate-600 dark:text-zinc-400 italic leading-relaxed">
-                    "{selectedConcept.context}"
-                  </p>
+              {/* Academic definition (Primary Hierarchy) */}
+              <section aria-labelledby="concept-academic-def-heading">
+                <h3
+                  id="concept-academic-def-heading"
+                  className="text-xs font-semibold uppercase tracking-wider text-stone-500 dark:text-stone-400 mb-2"
+                >
+                  Definición académica
+                </h3>
+                <div className="p-4 rounded-xl bg-stone-50 dark:bg-stone-950 border border-stone-200 dark:border-stone-800 text-stone-900 dark:text-stone-100 leading-relaxed whitespace-pre-line max-w-prose">
+                  {activeConcept.academicDefinition}
                 </div>
-              )}
-
-              {/* Academic definition */}
-              <div>
-                <h4 className="font-bold text-slate-900 dark:text-zinc-100 text-xs mb-1">
-                  Definición académica respaldada
-                </h4>
-                <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 text-slate-700 dark:text-zinc-300 leading-relaxed whitespace-pre-line">
-                  {selectedConcept.academicDefinition}
-                </div>
-              </div>
+              </section>
 
               {/* Plain explanation */}
-              {selectedConcept.plainExplanation && (
-                <div>
-                  <h4 className="font-bold text-slate-900 dark:text-zinc-100 text-xs mb-1">
-                    Explicación en lenguaje sencillo
-                  </h4>
-                  <div className="p-3.5 rounded-2xl bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 text-slate-700 dark:text-zinc-300 leading-relaxed">
-                    {selectedConcept.plainExplanation}
+              {activeConcept.plainExplanation && (
+                <section aria-labelledby="concept-plain-exp-heading">
+                  <h3
+                    id="concept-plain-exp-heading"
+                    className="text-xs font-semibold uppercase tracking-wider text-stone-500 dark:text-stone-400 mb-2"
+                  >
+                    Explicación sencilla para estudio
+                  </h3>
+                  <div className="p-4 rounded-xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 text-stone-700 dark:text-stone-300 leading-relaxed max-w-prose">
+                    {activeConcept.plainExplanation}
                   </div>
-                </div>
+                </section>
               )}
 
               {/* Illustrative example */}
-              {selectedConcept.illustrativeExample && (
-                <div>
-                  <h4 className="font-bold text-slate-900 dark:text-zinc-100 text-xs mb-1">
-                    Ejemplo ilustrativo
-                  </h4>
-                  <div className="p-3.5 rounded-2xl bg-amber-50/40 dark:bg-amber-950/20 border border-amber-200/60 dark:border-amber-900/40 text-slate-700 dark:text-zinc-300 leading-relaxed">
-                    {selectedConcept.illustrativeExample}
+              {activeConcept.illustrativeExample && (
+                <section aria-labelledby="concept-example-heading">
+                  <h3
+                    id="concept-example-heading"
+                    className="text-xs font-semibold uppercase tracking-wider text-stone-500 dark:text-stone-400 mb-2"
+                  >
+                    Ejemplo aplicado o clínico
+                  </h3>
+                  <div className="p-4 rounded-xl bg-stone-50 dark:bg-stone-950 border-l-4 border-l-indigo-500 border border-stone-200 dark:border-stone-800 text-stone-700 dark:text-stone-300 leading-relaxed max-w-prose">
+                    {activeConcept.illustrativeExample}
                   </div>
-                </div>
+                </section>
+              )}
+
+              {/* Context of origin */}
+              {activeConcept.context && (
+                <section aria-labelledby="concept-context-heading">
+                  <h3
+                    id="concept-context-heading"
+                    className="text-xs font-semibold uppercase tracking-wider text-stone-500 dark:text-stone-400 mb-1.5"
+                  >
+                    Cita en el texto original
+                  </h3>
+                  <blockquote className="px-3.5 py-2.5 rounded-xl bg-stone-50 dark:bg-stone-950 border border-stone-200/80 dark:border-stone-800 text-xs text-stone-600 dark:text-stone-400 italic leading-relaxed">
+                    «{activeConcept.context}»
+                  </blockquote>
+                </section>
               )}
 
               {/* Verified Sources */}
-              {selectedConcept.sources && selectedConcept.sources.length > 0 && (
-                <div>
-                  <h4 className="font-bold text-slate-900 dark:text-zinc-100 text-xs mb-1">
-                    Fuentes y referencias verificadas ({selectedConcept.sources.length})
-                  </h4>
+              {activeConcept.sources && activeConcept.sources.length > 0 && (
+                <section aria-labelledby="concept-sources-heading">
+                  <h3
+                    id="concept-sources-heading"
+                    className="text-xs font-semibold uppercase tracking-wider text-stone-500 dark:text-stone-400 mb-2"
+                  >
+                    Referencias consultadas ({activeConcept.sources.length})
+                  </h3>
                   <div className="space-y-1.5">
-                    {selectedConcept.sources.map((s, idx) => (
+                    {activeConcept.sources.map((s, idx) => (
                       <a
                         key={idx}
                         href={s.url}
                         target="_blank"
                         rel="noreferrer noopener"
-                        className="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 dark:bg-zinc-800/60 hover:bg-slate-100 dark:hover:bg-zinc-800 border border-slate-200 dark:border-zinc-700 text-indigo-600 dark:text-indigo-400 transition"
+                        className="flex items-center justify-between gap-2 min-h-[42px] px-3.5 py-2.5 rounded-xl bg-stone-50 dark:bg-stone-800/60 hover:bg-stone-100 dark:hover:bg-stone-800 border border-stone-200 dark:border-stone-700 text-xs text-indigo-600 dark:text-indigo-400 font-medium transition-colors"
                       >
-                        <span className="font-medium line-clamp-1">{s.title || s.url}</span>
-                        <ExternalLink className="w-3.5 h-3.5 shrink-0 ml-2" />
+                        <span className="truncate">{s.title || s.url}</span>
+                        <ExternalLink className="w-3.5 h-3.5 shrink-0" />
                       </a>
                     ))}
                   </div>
-                </div>
+                </section>
               )}
 
-              {/* Personal Notes (Editable by student without altering verified reference) */}
-              <div className="pt-2 border-t border-slate-100 dark:border-zinc-800">
-                <div className="flex items-center justify-between mb-1.5">
-                  <h4 className="font-bold text-slate-900 dark:text-zinc-100 text-xs flex items-center gap-1.5">
-                    <Edit3 className="w-3.5 h-3.5 text-indigo-500" /> Notas personales del estudiante
-                  </h4>
+              {/* Personal Notes (Editable by student) */}
+              <section
+                aria-labelledby="concept-personal-notes-heading"
+                className="pt-4 border-t border-stone-200 dark:border-stone-800"
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <h3
+                    id="concept-personal-notes-heading"
+                    className="text-xs font-semibold uppercase tracking-wider text-stone-700 dark:text-stone-300 flex items-center gap-1.5"
+                  >
+                    <Edit3 className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                    <span>Mis anotaciones de estudio</span>
+                  </h3>
                   {!isEditingUserNotes && (
                     <button
+                      type="button"
                       onClick={() => setIsEditingUserNotes(true)}
-                      className="text-indigo-600 dark:text-indigo-400 font-semibold hover:underline text-[11px]"
+                      className="min-h-[34px] px-2.5 py-1 rounded-lg text-indigo-600 dark:text-indigo-400 font-semibold hover:bg-indigo-50 dark:hover:bg-indigo-950/50 text-xs transition-colors"
                     >
-                      Editar nota
+                      {activeConcept.userNotes ? 'Editar anotación' : '+ Añadir anotación'}
                     </button>
                   )}
                 </div>
 
                 {isEditingUserNotes ? (
-                  <div className="space-y-2">
+                  <div className="space-y-2.5">
+                    <label htmlFor="concept-user-notes-textarea" className="sr-only">
+                      Anotaciones personales sobre {activeConcept.termName}
+                    </label>
                     <textarea
+                      id="concept-user-notes-textarea"
                       value={userNoteText}
                       onChange={(e) => setUserNoteText(e.target.value)}
-                      placeholder="Escribe tus propios apuntes sobre cómo aplicar o recordar este concepto..."
+                      placeholder="Añade reglas mnemotécnicas, ejemplos vistos en clase o relaciones con otros autores…"
                       rows={3}
-                      className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 text-slate-900 dark:text-zinc-100 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                      autoFocus
+                      className="w-full p-3 rounded-xl bg-stone-50 dark:bg-stone-800 border border-stone-300 dark:border-stone-700 text-base sm:text-sm text-stone-900 dark:text-stone-100 placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-indigo-600"
                     />
                     <div className="flex items-center justify-end gap-2">
                       <button
+                        type="button"
                         onClick={() => setIsEditingUserNotes(false)}
-                        className="px-3 py-1 text-slate-500 hover:text-slate-700"
+                        className="min-h-[40px] px-3.5 py-1.5 rounded-xl text-xs font-medium text-stone-600 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-800 transition-colors"
                       >
                         Cancelar
                       </button>
                       <button
+                        type="button"
                         onClick={handleSaveUserNotes}
-                        className="px-3 py-1 rounded-lg bg-indigo-600 text-white font-medium hover:bg-indigo-700"
+                        className="min-h-[40px] px-4 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold transition-colors"
                       >
-                        Guardar
+                        Guardar anotación
                       </button>
                     </div>
                   </div>
                 ) : (
-                  <div className="p-3 rounded-2xl bg-slate-50 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 text-slate-600 dark:text-zinc-400 italic">
-                    {selectedConcept.userNotes || 'Sin notas personales añadidas. Toca "Editar nota" para agregar tus comentarios de clase.'}
+                  <div className="p-3.5 rounded-xl bg-stone-50 dark:bg-stone-950 border border-stone-200 dark:border-stone-800 text-xs text-stone-600 dark:text-stone-400 leading-relaxed">
+                    {activeConcept.userNotes ? (
+                      <p className="text-stone-800 dark:text-stone-200 whitespace-pre-line">
+                        {activeConcept.userNotes}
+                      </p>
+                    ) : (
+                      <p className="italic">
+                        Sin anotaciones personales. Puedes agregar recordatorios de examen o relaciones con otros conceptos sin modificar la definición original.
+                      </p>
+                    )}
                   </div>
                 )}
-              </div>
+              </section>
             </div>
           </div>
         </div>
