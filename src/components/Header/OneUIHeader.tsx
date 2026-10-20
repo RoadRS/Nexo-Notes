@@ -180,6 +180,9 @@ export const OneUIHeader: React.FC = () => {
     }
   };
 
+  // Fase 3.1: Retirada temporal y reversible del acceso a Biblioteca / importación de documentos
+  const SHOW_DOCUMENT_LIBRARY_TAB = false;
+
   const desktopTabs: Array<{
     id: AppTab;
     label: string;
@@ -189,7 +192,9 @@ export const OneUIHeader: React.FC = () => {
     { id: 'notes', label: 'Apuntes', icon: FileText, count: notes.length },
     { id: 'analyze', label: 'Analizar', icon: Layers },
     { id: 'glossary', label: 'Glosario', icon: BookOpen, count: glossary.length },
-    { id: 'library', label: 'Biblioteca', icon: FolderArchive, count: documents.length },
+    ...(SHOW_DOCUMENT_LIBRARY_TAB
+      ? [{ id: 'library' as AppTab, label: 'Biblioteca', icon: FolderArchive, count: documents.length }]
+      : []),
     { id: 'settings', label: 'Ajustes', icon: Settings },
   ];
 

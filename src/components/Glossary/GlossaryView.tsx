@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import { ConceptEntity } from '../../types/models';
+import { isPlaceholderContextSnippet } from '../../utils/conceptDefiner';
 import {
   BookOpen,
   Search,
@@ -228,9 +229,14 @@ export const GlossaryView: React.FC = () => {
                             <span>Verificado</span>
                           </span>
                         ) : concept.verificationStatus === 'discrepancia' ? (
-                          <span className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-md bg-amber-50 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-200/60 dark:border-amber-800/50">
+                          <span className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-md bg-amber-50 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-200/60 dark:border-emerald-800/50">
                             <AlertTriangle className="w-3 h-3 shrink-0" />
                             <span>Discrepancia</span>
+                          </span>
+                        ) : concept.queryStatus === 'fuentes_consultadas' ? (
+                          <span className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-md bg-stone-100 text-stone-800 dark:bg-stone-800 dark:text-stone-200 border border-stone-300/70 dark:border-stone-700">
+                            <Search className="w-3 h-3 shrink-0" />
+                            <span>Fuentes consultadas</span>
                           </span>
                         ) : (
                           <span className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-md bg-stone-100 text-stone-700 dark:bg-stone-800 dark:text-stone-300">
@@ -390,8 +396,7 @@ export const GlossaryView: React.FC = () => {
               {/* Verification & Origin Bar */}
               <div className="flex flex-wrap items-center justify-between gap-2 p-3.5 rounded-xl bg-stone-50 dark:bg-stone-950 border border-stone-200 dark:border-stone-800 text-xs">
                 <div className="flex items-center gap-2">
-                  {activeConcept.queryStatus === 'contrastado_web' ||
-                  activeConcept.verificationStatus === 'verificado' ? (
+                  {activeConcept.verificationStatus === 'verificado' ? (
                     <span className="text-emerald-700 dark:text-emerald-400 font-semibold inline-flex items-center gap-1.5">
                       <CheckCircle2 className="w-4 h-4 shrink-0" />
                       <span>
@@ -400,15 +405,25 @@ export const GlossaryView: React.FC = () => {
                           : 'Verificado académicamente'}
                       </span>
                     </span>
+                  ) : activeConcept.verificationStatus === 'discrepancia' ? (
+                    <span className="text-amber-700 dark:text-amber-400 font-semibold inline-flex items-center gap-1.5">
+                      <AlertTriangle className="w-4 h-4 shrink-0" />
+                      <span>Discrepancias detectadas entre fuentes</span>
+                    </span>
+                  ) : activeConcept.queryStatus === 'contrastado_web' ? (
+                    <span className="text-red-700 dark:text-red-400 font-semibold inline-flex items-center gap-1.5">
+                      <AlertTriangle className="w-4 h-4 shrink-0" />
+                      <span>Sin respaldo suficiente en fuentes web</span>
+                    </span>
                   ) : activeConcept.queryStatus === 'fuentes_consultadas' ? (
                     <span className="text-indigo-700 dark:text-indigo-300 font-semibold inline-flex items-center gap-1.5">
                       <Search className="w-4 h-4 shrink-0" />
-                      <span>Fuentes externas consultadas</span>
+                      <span>Fuentes externas consultadas (sin verificación de afirmaciones)</span>
                     </span>
                   ) : (
                     <span className="text-stone-700 dark:text-stone-300 font-semibold inline-flex items-center gap-1.5">
                       <BookOpen className="w-4 h-4 shrink-0 text-stone-500" />
-                      <span>Definición contextual del apunte</span>
+                      <span>Definición contextual del apunte (no verificada en web)</span>
                     </span>
                   )}
                 </div>
@@ -467,7 +482,7 @@ export const GlossaryView: React.FC = () => {
                   >
                     Explicación sencilla para estudio
                   </h3>
-                  <div className="p-4 rounded-xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 text-stone-700 dark:text-stone-300 leading-relaxed max-w-prose">
+                  <div className="p-4 rounded-xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 text-stone-700 dark:text-stone-300 leading-relaxed whitespace-pre-line max-w-prose">
                     {activeConcept.plainExplanation}
                   </div>
                 </section>
@@ -482,14 +497,14 @@ export const GlossaryView: React.FC = () => {
                   >
                     Ejemplo aplicado o clínico
                   </h3>
-                  <div className="p-4 rounded-xl bg-stone-50 dark:bg-stone-950 border-l-4 border-l-indigo-500 border border-stone-200 dark:border-stone-800 text-stone-700 dark:text-stone-300 leading-relaxed max-w-prose">
+                  <div className="p-4 rounded-xl bg-stone-50 dark:bg-stone-950 border-l-4 border-l-indigo-500 border border-stone-200 dark:border-stone-800 text-stone-700 dark:text-stone-300 leading-relaxed whitespace-pre-line max-w-prose">
                     {activeConcept.illustrativeExample}
                   </div>
                 </section>
               )}
 
               {/* Context of origin */}
-              {activeConcept.context && (
+              {activeConcept.context && !isPlaceholderContextSnippet(activeConcept.context) && (
                 <section aria-labelledby="concept-context-heading">
                   <h3
                     id="concept-context-heading"

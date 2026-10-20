@@ -1,8 +1,12 @@
 node_modules/
 build/
 dist/
+dev-dist/
+.antigravity/
 coverage/
 .DS_Store
 *.log
+.vscode/
 .env*
 !.env.example
+

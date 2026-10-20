@@ -12,17 +12,31 @@ import {
   BackupPayload,
   CachedAnalysisEntity,
 } from '../types/models';
+import { sanitizeAppPreferences } from '../utils/academicContext';
+import {
+  AcademicContextInput,
+  isSameGlossaryConceptIdentity,
+  mergeGlossaryConceptOnSave,
+  normalizeConceptTermName,
+  prepareSafeCacheEntryToSave,
+  reconcileGlossaryConceptBatch,
+  resolveContextualCacheKey,
+  SaveConceptMergeOptions,
+  selectCompatibleCachedAnalysis,
+} from '../utils/cacheIntegrity';
 
 const DB_NAME = 'NexoNotes_RoomDB';
 const DB_VERSION = 2;
 
-const DEFAULT_PREFERENCES: AppPreferences = {
+export const DEFAULT_PREFERENCES: AppPreferences = {
   theme: 'system',
   chunkSize: 2500,
   autoDetectOnSave: false,
   lastSubject: 'Psicología Cognitiva',
   showSourcesPreview: true,
   offlineOnlyMode: false,
+  academicProfile: undefined,
+  onboardingCompleted: false,
 };
 
 const INITIAL_FOLDERS: FolderEntity[] = [
@@ -427,34 +441,31 @@ class NexoNotesDatabase {
     });
   }
 
-  async saveConcept(concept: ConceptEntity): Promise<ConceptEntity> {
+  async saveConcept(
+    concept: ConceptEntity,
+    options?: SaveConceptMergeOptions
+  ): Promise<ConceptEntity> {
     const db = await this.getDB();
-    const normalized = (concept.normalizedName || concept.termName).trim().toLowerCase();
+    const normalized = normalizeConceptTermName(concept.normalizedName || concept.termName);
     return new Promise((resolve, reject) => {
       const tx = db.transaction('glossary', 'readwrite');
       const store = tx.objectStore('glossary');
       const idx = store.index('normalizedName');
       const matchReq = idx.getAll(normalized);
 
-      let mergedConcept: ConceptEntity = {
-        ...concept,
-        normalizedName: normalized,
-      };
+      let mergedConcept: ConceptEntity = mergeGlossaryConceptOnSave(null, concept, options);
 
       matchReq.onsuccess = () => {
         const matches = (matchReq.result as ConceptEntity[]) || [];
-        const existing = matches.find((c) => c.id === concept.id) || matches[0];
+        const sameIdentityMatches = matches.filter(
+          (c) => c.id === concept.id || isSameGlossaryConceptIdentity(c, concept)
+        );
+        const existing =
+          sameIdentityMatches.find((c) => c.id === concept.id) || sameIdentityMatches[0];
+
         if (existing) {
-          mergedConcept = {
-            ...existing,
-            ...concept,
-            id: existing.id,
-            normalizedName: normalized,
-            createdAt: existing.createdAt || concept.createdAt,
-            isFavorite: concept.isFavorite ?? existing.isFavorite,
-            userNotes: concept.userNotes !== undefined ? concept.userNotes : existing.userNotes,
-          };
-          matches.forEach((m) => {
+          mergedConcept = mergeGlossaryConceptOnSave(existing, concept, options);
+          sameIdentityMatches.forEach((m) => {
             if (m.id !== existing.id) {
               store.delete(m.id);
             }
@@ -468,7 +479,10 @@ class NexoNotesDatabase {
     });
   }
 
-  async saveMultipleConcepts(concepts: ConceptEntity[]): Promise<void> {
+  async saveMultipleConcepts(
+    concepts: ConceptEntity[],
+    options?: SaveConceptMergeOptions
+  ): Promise<void> {
     const db = await this.getDB();
     return new Promise((resolve, reject) => {
       const tx = db.transaction('glossary', 'readwrite');
@@ -477,32 +491,8 @@ class NexoNotesDatabase {
 
       allReq.onsuccess = () => {
         const existingList = (allReq.result as ConceptEntity[]) || [];
-        const byNormalized = new Map<string, ConceptEntity>();
-        existingList.forEach((item) => {
-          const key = (item.normalizedName || item.termName).trim().toLowerCase();
-          if (!byNormalized.has(key)) {
-            byNormalized.set(key, item);
-          }
-        });
-
-        concepts.forEach((c) => {
-          const normalized = (c.normalizedName || c.termName).trim().toLowerCase();
-          const existing = byNormalized.get(normalized);
-          const merged: ConceptEntity = existing
-            ? {
-                ...existing,
-                ...c,
-                id: existing.id,
-                normalizedName: normalized,
-                createdAt: existing.createdAt || c.createdAt,
-                isFavorite: c.isFavorite ?? existing.isFavorite,
-                userNotes: c.userNotes !== undefined ? c.userNotes : existing.userNotes,
-              }
-            : {
-                ...c,
-                normalizedName: normalized,
-              };
-          byNormalized.set(normalized, merged);
+        const { updatedToPersist } = reconcileGlossaryConceptBatch(existingList, concepts, options);
+        updatedToPersist.forEach((merged) => {
           store.put(merged);
         });
       };
@@ -566,77 +556,113 @@ class NexoNotesDatabase {
       const request = store.get('appPreferences');
       request.onsuccess = () => {
         if (request.result?.value) {
-          resolve({ ...DEFAULT_PREFERENCES, ...request.result.value });
+          resolve(sanitizeAppPreferences(request.result.value, DEFAULT_PREFERENCES));
         } else {
-          resolve(DEFAULT_PREFERENCES);
+          resolve({ ...DEFAULT_PREFERENCES });
         }
       };
-      request.onerror = () => resolve(DEFAULT_PREFERENCES);
+      request.onerror = () => resolve({ ...DEFAULT_PREFERENCES });
     });
   }
 
   async savePreferences(preferences: AppPreferences): Promise<void> {
     const db = await this.getDB();
+    const sanitized = sanitizeAppPreferences(preferences, DEFAULT_PREFERENCES);
     return new Promise((resolve, reject) => {
       const tx = db.transaction('preferences', 'readwrite');
       const store = tx.objectStore('preferences');
-      const request = store.put({ key: 'appPreferences', value: preferences });
+      const request = store.put({ key: 'appPreferences', value: sanitized });
       request.onsuccess = () => resolve();
       request.onerror = () => reject(request.error);
     });
   }
 
   // === ANALYSIS CACHE DAO ===
-  async getCachedAnalysis(termName: string): Promise<CachedAnalysisEntity | null> {
+  async getCachedAnalysis(
+    termName: string,
+    contextOrArea?: AcademicContextInput
+  ): Promise<CachedAnalysisEntity | null> {
     const db = await this.getDB();
-    const key = termName.trim().toLowerCase();
+    const trimmed = (termName || '').trim();
+    if (!trimmed) return null;
+
+    const isAlreadyContextualKey = trimmed.includes('::') && !contextOrArea;
+    const contextualKey = isAlreadyContextualKey
+      ? trimmed
+      : resolveContextualCacheKey(trimmed, contextOrArea);
+    const legacyKey = normalizeConceptTermName(
+      isAlreadyContextualKey ? trimmed.split('::')[0] : trimmed
+    );
+    const effectiveContext: AcademicContextInput = isAlreadyContextualKey
+      ? { areaId: trimmed.split('::')[1] }
+      : contextOrArea;
+
     return new Promise((resolve) => {
       try {
         const tx = db.transaction('analysisCache', 'readonly');
         const store = tx.objectStore('analysisCache');
-        const req = store.get(key);
-        req.onsuccess = () => resolve(req.result || null);
-        req.onerror = () => resolve(null);
+        const contextualReq = store.get(contextualKey);
+
+        contextualReq.onsuccess = () => {
+          const contextualMatch = (contextualReq.result as CachedAnalysisEntity) || null;
+          const compatibleContextual = selectCompatibleCachedAnalysis({
+            contextualMatch,
+            targetContext: effectiveContext,
+          });
+
+          if (compatibleContextual || legacyKey === contextualKey) {
+            resolve(compatibleContextual);
+            return;
+          }
+
+          const legacyReq = store.get(legacyKey);
+          legacyReq.onsuccess = () => {
+            const legacyMatch = (legacyReq.result as CachedAnalysisEntity) || null;
+            resolve(
+              selectCompatibleCachedAnalysis({
+                contextualMatch: null,
+                legacyMatch,
+                targetContext: effectiveContext,
+              })
+            );
+          };
+          legacyReq.onerror = () => resolve(null);
+        };
+
+        contextualReq.onerror = () => resolve(null);
       } catch {
         resolve(null);
       }
     });
   }
 
-  async saveCachedAnalysis(entry: CachedAnalysisEntity): Promise<void> {
+  async saveCachedAnalysis(
+    entry: CachedAnalysisEntity,
+    contextOrArea?: AcademicContextInput
+  ): Promise<void> {
+    const effectiveContext: AcademicContextInput = contextOrArea ?? {
+      academicAreaId: entry?.academicAreaId,
+      academicField: entry?.academicField,
+    };
+
+    const previewSafeEntry = prepareSafeCacheEntryToSave(null, entry, effectiveContext);
+    if (!previewSafeEntry) {
+      return;
+    }
+
     const db = await this.getDB();
     return new Promise((resolve, reject) => {
       try {
         const tx = db.transaction('analysisCache', 'readwrite');
         const store = tx.objectStore('analysisCache');
-        const getReq = store.get(entry.termKey);
+        const getReq = store.get(previewSafeEntry.termKey);
 
         getReq.onsuccess = () => {
           const existing = getReq.result as CachedAnalysisEntity | undefined;
-          let entryToSave = entry;
-
-          if (existing) {
-            const hasNewSources = Array.isArray(entry.sources) && entry.sources.length > 0;
-            const hadSources = Array.isArray(existing.sources) && existing.sources.length > 0;
-
-            // Preserve existing verified sources and status if the incoming update has no sources
-            if (!hasNewSources && hadSources) {
-              entryToSave = {
-                ...entry,
-                sources: existing.sources,
-                supportedSegments:
-                  entry.supportedSegments && entry.supportedSegments.length > 0
-                    ? entry.supportedSegments
-                    : existing.supportedSegments,
-                verificationStatus: existing.verificationStatus,
-                queryStatus: existing.queryStatus || entry.queryStatus,
-                queriesConsulted:
-                  existing.queriesConsulted && existing.queriesConsulted.length > 0
-                    ? existing.queriesConsulted
-                    : entry.queriesConsulted,
-                groundingUsed: existing.groundingUsed || entry.groundingUsed,
-              };
-            }
+          const entryToSave = prepareSafeCacheEntryToSave(existing, entry, effectiveContext);
+          if (!entryToSave) {
+            resolve();
+            return;
           }
 
           const putReq = store.put(entryToSave);
@@ -645,7 +671,7 @@ class NexoNotesDatabase {
         };
 
         getReq.onerror = () => {
-          const putReq = store.put(entry);
+          const putReq = store.put(previewSafeEntry);
           putReq.onsuccess = () => resolve();
           putReq.onerror = () => reject(putReq.error);
         };
@@ -760,7 +786,10 @@ class NexoNotesDatabase {
       }
 
       if (data.preferences) {
-        prefStore.put({ key: 'appPreferences', value: data.preferences });
+        prefStore.put({
+          key: 'appPreferences',
+          value: sanitizeAppPreferences(data.preferences, DEFAULT_PREFERENCES),
+        });
       }
 
       tx.oncomplete = () => {

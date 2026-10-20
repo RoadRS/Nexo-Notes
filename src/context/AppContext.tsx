@@ -7,7 +7,16 @@ import {
   AppPreferences,
   ThemePreference,
 } from '../types/models';
-import { localDB } from '../db/indexedDB';
+import { localDB, DEFAULT_PREFERENCES } from '../db/indexedDB';
+import {
+  SaveAcademicProfileInput,
+  buildInitialNoteEntity,
+  buildUpdatedPreferencesOnSkipOnboarding,
+  buildUpdatedPreferencesWithProfile,
+  sanitizeAppPreferences,
+  syncNoteAcademicContext,
+} from '../utils/academicContext';
+import { isSameGlossaryConceptIdentity } from '../utils/cacheIntegrity';
 
 export type AppTab = 'notes' | 'analyze' | 'glossary' | 'library' | 'settings';
 
@@ -51,6 +60,8 @@ interface AppContextType {
   deleteDocument: (id: string) => Promise<void>;
 
   updatePreferences: (newPrefs: Partial<AppPreferences>) => Promise<void>;
+  saveAcademicProfile: (input: SaveAcademicProfileInput) => Promise<void>;
+  skipAcademicOnboarding: () => Promise<void>;
   exportBackupFile: () => Promise<void>;
   importBackupFile: (file: File) => Promise<{ success: boolean; message: string }>;
   showNotification: (message: string, type?: 'info' | 'success' | 'error') => void;
@@ -71,6 +82,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     lastSubject: 'Psicología Cognitiva',
     showSourcesPreview: true,
     offlineOnlyMode: false,
+    academicProfile: undefined,
+    onboardingCompleted: false,
   });
 
   const [activeNote, setActiveNote] = useState<NoteEntity | null>(null);
@@ -199,20 +212,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Notes actions
   const createNote = async (subject?: string, folderId?: string): Promise<NoteEntity> => {
-    const defaultSub = subject || (folderId ? folders.find((f) => f.id === folderId)?.subject : '') || preferences.lastSubject || 'General';
-    const newNote: NoteEntity = {
-      id: `note-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-      title: 'Nota sin título',
-      content: '',
+    const targetFolder = folderId ? folders.find((f) => f.id === folderId) || null : null;
+    const newNote = buildInitialNoteEntity({
+      subject,
       folderId: folderId || undefined,
-      subject: defaultSub,
-      tags: [],
-      isPinned: false,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-      wordCount: 0,
-      charCount: 0,
-    };
+      folder: targetFolder,
+      preferences,
+    });
 
     await localDB.saveNote(newNote);
     setNotes((prev) => [newNote, ...prev]);
@@ -224,14 +230,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const trimmedTitle = updatedNote.title.trim() || 'Nota sin título';
     const words = updatedNote.content.trim() ? updatedNote.content.trim().split(/\s+/).length : 0;
     const chars = updatedNote.content.length;
+    const targetFolder = updatedNote.folderId
+      ? folders.find((f) => f.id === updatedNote.folderId) || null
+      : null;
 
-    const noteToSave: NoteEntity = {
-      ...updatedNote,
-      title: trimmedTitle,
-      updatedAt: Date.now(),
-      wordCount: words,
-      charCount: chars,
-    };
+    const noteToSave: NoteEntity = syncNoteAcademicContext(
+      {
+        ...updatedNote,
+        title: trimmedTitle,
+        updatedAt: Date.now(),
+        wordCount: words,
+        charCount: chars,
+      },
+      { folder: targetFolder }
+    );
 
     await localDB.saveNote(noteToSave);
     setNotes((prev) => {
@@ -305,7 +317,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const saveConcept = async (concept: ConceptEntity) => {
     const saved = await localDB.saveConcept(concept);
     setGlossary((prev) => {
-      const filtered = prev.filter((c) => c.id !== saved.id && c.normalizedName !== saved.normalizedName);
+      const filtered = prev.filter(
+        (c) => c.id !== saved.id && !isSameGlossaryConceptIdentity(c, saved)
+      );
       const next = [saved, ...filtered];
       next.sort((a, b) => {
         if (a.isFavorite !== b.isFavorite) return a.isFavorite ? -1 : 1;
@@ -333,7 +347,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const target = glossary.find((c) => c.id === id);
     if (!target) return;
     const updated = { ...target, isFavorite: !target.isFavorite };
-    const saved = await localDB.saveConcept(updated);
+    const saved = await localDB.saveConcept(updated, { explicitFavoriteChange: true });
     setGlossary((prev) => {
       const updatedList = prev.map((c) => (c.id === id ? saved : c));
       updatedList.sort((a, b) => {
@@ -359,10 +373,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Preferences actions
   const updatePreferences = async (newPrefs: Partial<AppPreferences>) => {
-    const updated = { ...preferences, ...newPrefs };
+    const updated = sanitizeAppPreferences({ ...preferences, ...newPrefs }, DEFAULT_PREFERENCES);
     setPreferences(updated);
     await localDB.savePreferences(updated);
     showNotification('Ajustes guardados.', 'success');
+  };
+
+  const saveAcademicProfile = async (input: SaveAcademicProfileInput) => {
+    const updated = buildUpdatedPreferencesWithProfile(preferences, input);
+    setPreferences(updated);
+    await localDB.savePreferences(updated);
+    showNotification('Perfil académico guardado.', 'success');
+  };
+
+  const skipAcademicOnboarding = async () => {
+    const updated = buildUpdatedPreferencesOnSkipOnboarding(preferences);
+    setPreferences(updated);
+    await localDB.savePreferences(updated);
+    showNotification('Puedes configurar tu perfil académico en Ajustes cuando quieras.', 'info');
   };
 
   // Backup actions
@@ -457,6 +485,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       deleteDocument,
 
       updatePreferences,
+      saveAcademicProfile,
+      skipAcademicOnboarding,
       exportBackupFile,
       importBackupFile,
       showNotification,

@@ -1,12 +1,14 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { useApp } from '../../context/AppContext';
 import { NoteEntity } from '../../types/models';
+import { getNoteAcademicSummary, NoteAcademicSummary } from '../../utils/academicContext';
 import { Pin, Layers, Plus, Calendar, BookOpen, Clock, ArrowRight } from 'lucide-react';
 
 export const NotesList: React.FC<{ onAnalyzeNote: (note: NoteEntity) => void }> = ({ onAnalyzeNote }) => {
   const {
     notes,
     folders,
+    preferences,
     selectedFolderId,
     selectedSubject,
     searchQuery,
@@ -47,6 +49,22 @@ export const NotesList: React.FC<{ onAnalyzeNote: (note: NoteEntity) => void }> 
 
   const activeFolder = selectedFolderId ? getFolder(selectedFolderId) : null;
 
+  // Memoize academic context summaries for visible notes to avoid recalculating on unrelated renders
+  const academicSummariesById = useMemo(() => {
+    const map = new Map<string, NoteAcademicSummary>();
+    for (const note of filteredNotes) {
+      const folder = note.folderId ? folders.find((f) => f.id === note.folderId) || null : null;
+      map.set(
+        note.id,
+        getNoteAcademicSummary(note, {
+          folder,
+          academicProfile: preferences.academicProfile,
+        })
+      );
+    }
+    return map;
+  }, [filteredNotes, folders, preferences.academicProfile]);
+
   const formatDate = (timestamp: number) => {
     const d = new Date(timestamp);
     const now = new Date();
@@ -64,6 +82,20 @@ export const NotesList: React.FC<{ onAnalyzeNote: (note: NoteEntity) => void }> 
 
   const renderNoteCard = (note: NoteEntity) => {
     const folder = getFolder(note.folderId);
+    const academicSummary =
+      academicSummariesById.get(note.id) ||
+      getNoteAcademicSummary(note, {
+        folder,
+        academicProfile: preferences.academicProfile,
+      });
+
+    const normSub = (note.subject || '').trim().toLowerCase();
+    const showSubjectChip =
+      Boolean(normSub) &&
+      normSub !== 'general' &&
+      normSub !== academicSummary.disciplineLabel.toLowerCase() &&
+      normSub !== academicSummary.shortLabel.toLowerCase();
+
     const excerpt = note.content
       .replace(/^[#*>\s-]+/gm, '')
       .replace(/\n+/g, ' ')
@@ -89,11 +121,21 @@ export const NotesList: React.FC<{ onAnalyzeNote: (note: NoteEntity) => void }> 
                   <span className="truncate max-w-[140px]">{folder.name}</span>
                 </span>
               )}
-              {note.subject && (
-                <span className="text-[11px] font-medium px-2 py-0.5 rounded-md bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300 border border-stone-200/70 dark:border-stone-700/70 truncate max-w-[150px]">
+              {showSubjectChip && (
+                <span className="text-[11px] font-medium px-2 py-0.5 rounded-md bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300 border border-stone-200/70 dark:border-stone-700/70 truncate max-w-[140px]">
                   {note.subject}
                 </span>
               )}
+              <span
+                title={academicSummary.badgeTooltip}
+                className={`text-[11px] font-medium px-2 py-0.5 rounded-md truncate max-w-[165px] ${
+                  academicSummary.mode === 'manual'
+                    ? 'bg-indigo-50/70 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border border-indigo-200/70 dark:border-indigo-800/60'
+                    : 'bg-stone-100/80 dark:bg-stone-800/80 text-stone-600 dark:text-stone-400 border border-stone-200/60 dark:border-stone-700/60'
+                }`}
+              >
+                {academicSummary.badgeText}
+              </span>
             </div>
 
             <div className="flex items-center gap-1 shrink-0 -mr-1 -mt-1">

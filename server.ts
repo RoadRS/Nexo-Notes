@@ -3,6 +3,27 @@ import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { GoogleGenAI, Type } from '@google/genai';
+import {
+  ConceptExtractionError,
+  classifyExtractionError,
+  extractTermsFromChunksWithResilience,
+} from './src/utils/conceptExtractor';
+import {
+  buildSearchSourcesPrompt,
+  buildVerifyGroundingPrompt,
+  ConceptDefinitionError,
+  ContextualDefinitionTermInput,
+  classifyDefinitionError,
+  classifySearchGroundingError,
+  DEFINITION_FALLBACK_MODEL,
+  DEFINITION_PRIMARY_MODEL,
+  extractGroundingSourcesAndSegments,
+  generateContextualDefinitionWithResilience,
+  parseAndValidateSearchGroundingResponse,
+  resolveDefinitionPromptContext,
+  resolveSearchSourcesOutcome,
+  resolveVerifyGroundingOutcome,
+} from './src/utils/conceptDefiner';
 
 dotenv.config();
 
@@ -66,412 +87,356 @@ function splitTextIntoChunks(text: string, chunkSize = 2500, overlap = 300): str
 // Stage A: Detect & extract technical terms from text (Without external web searches)
 app.post('/api/analyze/extract-terms', async (req: Request, res: Response) => {
   try {
-    const { text, subject, noteTitle } = req.body;
+    const { text, subject, title, noteTitle, academicContext } = req.body ?? {};
     if (!text || typeof text !== 'string' || text.trim().length === 0) {
-      return res.status(400).json({ error: 'Texto no proporcionado para análisis.' });
-    }
-
-    const cleanText = text.trim();
-    const chunks = splitTextIntoChunks(cleanText, 3500, 250);
-
-    // If Gemini is available, utilize prompt to identify technical, domain-specific and compound terms
-    if (ai) {
-      const detectedTermsMap = new Map<string, {
-        name: string;
-        normalizedName: string;
-        contextSnippet: string;
-        academicField: string;
-        isCompound: boolean;
-        confidence: number;
-      }>();
-
-      // Process all document chunks in sequential batches to cover every page (up to 30 chunks / 60+ pages)
-      const maxChunksToProcess = Math.min(chunks.length, 30);
-      for (let i = 0; i < maxChunksToProcess; i++) {
-        const chunk = chunks[i];
-        const prompt = `Analiza el siguiente texto académico/estudiantil (Materia: "${subject || 'General'}", Título de nota: "${noteTitle || 'Apunte'}").
-Identifica términos técnicos, conceptos disciplinares y expresiones compuestas relevantes (por ejemplo: "disonancia cognitiva", "comparación social ascendente", "análisis sintáctico", "polimorfismo ad-hoc").
-REGLAS ESTRICTAS:
-1. No incluyas palabras comunes o coloquiales sin utilidad académica (ej: "tarea", "profesor", "clase", "ejemplo").
-2. Detecta términos compuestos completos, no los separes si forman una unidad conceptual.
-3. Para cada término, extrae la frase u oración exacta donde aparece como contexto.
-4. Devuelve ÚNICAMENTE un JSON válido con el siguiente formato:
-{
-  "terms": [
-    {
-      "name": "nombre exacto del término",
-      "academicField": "disciplina o campo académico (ej: Psicología Social, Informática, Derecho Civil)",
-      "contextSnippet": "frase o fragmento de contexto del texto donde se menciona",
-      "isCompound": true/false
-    }
-  ]
-}
-
-TEXTO:
-"""
-${chunk}
-"""`;
-
-        try {
-          const response = await ai.models.generateContent({
-            model: 'gemini-3.5-flash-lite',
-            contents: prompt,
-            config: {
-              responseMimeType: 'application/json',
-              responseSchema: {
-                type: Type.OBJECT,
-                properties: {
-                  terms: {
-                    type: Type.ARRAY,
-                    items: {
-                      type: Type.OBJECT,
-                      properties: {
-                        name: { type: Type.STRING },
-                        academicField: { type: Type.STRING },
-                        contextSnippet: { type: Type.STRING },
-                        isCompound: { type: Type.BOOLEAN },
-                      },
-                      required: ['name'],
-                    },
-                  },
-                },
-                required: ['terms'],
-              },
-              temperature: 0.2,
-            },
-          });
-
-          const rawText = response.text || '{}';
-          const parsed = JSON.parse(rawText);
-          if (Array.isArray(parsed.terms)) {
-            for (const t of parsed.terms) {
-              if (t.name && typeof t.name === 'string') {
-                const norm = t.name.trim().toLowerCase();
-                if (!detectedTermsMap.has(norm)) {
-                  detectedTermsMap.set(norm, {
-                    name: t.name.trim(),
-                    normalizedName: norm,
-                    contextSnippet: t.contextSnippet || '',
-                    academicField: t.academicField || subject || 'Académico',
-                    isCompound: !!t.isCompound || t.name.trim().includes(' '),
-                    confidence: 0.95,
-                  });
-                }
-              }
-            }
-          }
-        } catch (subErr) {
-          console.error('Error procesando fragmento con Gemini:', subErr);
-        }
-      }
-
-      const termsList = Array.from(detectedTermsMap.values());
-      return res.json({
-        terms: termsList,
-        totalDetected: termsList.length,
-        method: 'gemini-2.5-flash',
-        chunkCount: chunks.length,
+      return res.status(400).json({
+        error: 'Se requiere un texto válido para extraer conceptos.',
+        errorKind: 'INVALID_REQUEST',
+        retryable: false,
       });
     }
 
-    // Heuristic fallback if Gemini API key is not configured
-    // Detect multi-word capitalization, quotes, italics, academic markers
-    const regexes = [
-      /\b([A-ZÁÉÍÓÚÑ][a-záéíóúñ]+(?:\s+[a-záéíóúñ]+)*\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+)\b/g,
-      /«([^»]{3,40})»/g,
-      /"([^"]{3,40})"/g,
-      /“([^”]{3,40})”/g,
-    ];
-
-    const termsSet = new Set<string>();
-    const results: Array<{
-      name: string;
-      normalizedName: string;
-      contextSnippet: string;
-      academicField: string;
-      isCompound: boolean;
-      confidence: number;
-    }> = [];
-
-    for (const re of regexes) {
-      let match;
-      while ((match = re.exec(cleanText)) !== null) {
-        const found = match[1] ? match[1].trim() : match[0].trim();
-        const norm = found.toLowerCase();
-        if (found.length >= 3 && !termsSet.has(norm) && !/^(el|la|los|las|un|una|este|esta)\b/i.test(found)) {
-          termsSet.add(norm);
-          const start = Math.max(0, match.index - 50);
-          const end = Math.min(cleanText.length, match.index + found.length + 50);
-          results.push({
-            name: found,
-            normalizedName: norm,
-            contextSnippet: cleanText.substring(start, end).replace(/\n+/g, ' ').trim(),
-            academicField: subject || 'General',
-            isCompound: found.includes(' '),
-            confidence: 0.75,
-          });
-        }
-      }
+    if (!ai) {
+      return res.status(503).json({
+        error: 'El servicio de inteligencia artificial no está disponible en el servidor.',
+        errorKind: 'TRANSIENT_ERROR',
+        retryable: true,
+      });
     }
 
+    const cleanText = text.trim();
+    const effectiveTitle = (noteTitle || title || 'Apunte').trim();
+    const effectiveSubject = (subject || 'General').trim();
+    const allChunks = splitTextIntoChunks(cleanText, 3500, 250);
+    const maxChunksToProcess = Math.min(allChunks.length, 30);
+    const chunksToProcess = allChunks.slice(0, maxChunksToProcess);
+
+    const extractionResult = await extractTermsFromChunksWithResilience(
+      chunksToProcess,
+      {
+        subject: effectiveSubject,
+        title: effectiveTitle,
+        academicContext: academicContext ?? null,
+      },
+      async ({ model, prompt, chunkIndex, attempt }) => {
+        if (attempt > 1) {
+          console.warn(
+            `[Nexo Notes] Reintentando extracción de conceptos (fragmento ${chunkIndex + 1}/${maxChunksToProcess}, intento ${attempt}, modelo ${model})...`
+          );
+        }
+        const response = await ai!.models.generateContent({
+          model,
+          contents: prompt,
+          config: {
+            responseMimeType: 'application/json',
+            responseSchema: {
+              type: Type.OBJECT,
+              properties: {
+                terms: {
+                  type: Type.ARRAY,
+                  items: {
+                    type: Type.OBJECT,
+                    properties: {
+                      name: {
+                        type: Type.STRING,
+                        description:
+                          'Nombre canónico del concepto académico o técnico (1 a 4 palabras), sin incluir su definición ni verbos explicativos.',
+                      },
+                      academicField: {
+                        type: Type.STRING,
+                        description: 'Disciplina o campo académico específico.',
+                      },
+                      contextSnippet: {
+                        type: Type.STRING,
+                        description:
+                          'Fragmento breve (máximo 140 caracteres) donde aparece el término en el apunte.',
+                      },
+                      isCompound: {
+                        type: Type.BOOLEAN,
+                        description: 'True si el concepto consta de dos o más palabras.',
+                      },
+                    },
+                    required: ['name', 'academicField', 'contextSnippet', 'isCompound'],
+                  },
+                },
+              },
+              required: ['terms'],
+            },
+            temperature: 0.1,
+          },
+        });
+        return response.text ?? '';
+      }
+    );
+
+    const termsList = extractionResult.terms.map((t) => ({
+      name: t.name,
+      normalizedName: t.name.trim().toLowerCase(),
+      contextSnippet: t.contextSnippet,
+      academicField: t.academicField || effectiveSubject,
+      isCompound: t.isCompound,
+      confidence: 0.95,
+    }));
+
     return res.json({
-      terms: results,
-      totalDetected: results.length,
-      method: 'heuristic-local',
-      chunkCount: chunks.length,
+      terms: termsList,
+      totalDetected: termsList.length,
+      method: extractionResult.method,
+      attemptsUsed: extractionResult.attemptsUsed,
+      chunkCount: maxChunksToProcess,
     });
-  } catch (error: any) {
-    console.error('Error en /api/analyze/extract-terms:', error);
-    return res.status(500).json({
-      error: 'Error interno al analizar el texto.',
-      details: error?.message || String(error),
+  } catch (error: unknown) {
+    const classified: ConceptExtractionError = classifyExtractionError(error);
+    console.error(
+      `[Nexo Notes] Error en /api/analyze/extract-terms (${classified.kind}, HTTP ${classified.statusCode}):`,
+      classified.details || classified.message
+    );
+    return res.status(classified.statusCode).json({
+      error: classified.message,
+      errorKind: classified.kind,
+      retryable: classified.retryable,
+      details: classified.details || classified.message,
     });
   }
 });
 
-// Helper parser for structured model responses
-function parseSectionsFromModelResponse(rawText: string, defaultSubject = 'General') {
-  let academicDefinition = '';
-  let plainExplanation = '';
-  let illustrativeExample = '';
-  let academicField = defaultSubject;
-  let status: 'verificado' | 'discrepancia' | 'no_verificado' = 'verificado';
-
-  const lines = rawText.split('\n');
-  let currentSection = 'def';
-
-  for (const rawLine of lines) {
-    const l = rawLine.trim();
-    if (!l) continue;
-
-    // Check section headers (strip markdown asterisks, bullets, numbers and hashtags)
-    const cleanHeader = l.replace(/^[-*#\d.\s]+/, '').replace(/\*\*/g, '').trim();
-
-    if (/^(academicDefinition|d[eé]finici[oó]n\s+[aá]cad[eé]mic[aá]|d[eé]finici[oó]n)\b/i.test(cleanHeader)) {
-      currentSection = 'def';
-      const inlineVal = l.replace(/^[^:]*:\s*/, '').replace(/^\*+|\*+$/g, '').trim();
-      if (inlineVal) academicDefinition += (academicDefinition ? '\n' : '') + inlineVal;
-      continue;
-    } else if (/^(plainExplanation|l[eé]ngu[aá]j[eé]\s+s[eé]ncillo|[eé]xplic[aá]ci[oó]n\s+s[eé]ncill[aá]|[eé]xplic[aá]ci[oó]n)\b/i.test(cleanHeader)) {
-      currentSection = 'plain';
-      const inlineVal = l.replace(/^[^:]*:\s*/, '').replace(/^\*+|\*+$/g, '').trim();
-      if (inlineVal) plainExplanation += (plainExplanation ? '\n' : '') + inlineVal;
-      continue;
-    } else if (/^(illustrativeExample|[eé]j[eé]mplo\s+did[aá]ctico|[eé]j[eé]mplo\s+ilustr[aá]tivo|[eé]j[eé]mplo)\b/i.test(cleanHeader)) {
-      currentSection = 'example';
-      const inlineVal = l.replace(/^[^:]*:\s*/, '').replace(/^\*+|\*+$/g, '').trim();
-      if (inlineVal) illustrativeExample += (illustrativeExample ? '\n' : '') + inlineVal;
-      continue;
-    } else if (/^(academicField|disciplin[aá]|c[aá]mpo\s+[aá]cad[eé]mico|c[aá]mpo)\b/i.test(cleanHeader)) {
-      const fieldMatch = l.replace(/^[^:]*:\s*/, '').replace(/^\*+|\*+$/g, '').trim();
-      if (fieldMatch) academicField = fieldMatch;
-      continue;
-    } else if (/^(verificationStatus|[eé]st[aá]do\s+d[eé]\s+v[eé]rific[aá]ci[oó]n)\b/i.test(cleanHeader)) {
-      if (/discrepancia/i.test(l)) status = 'discrepancia';
-      else if (/no_verificado|no verificado/i.test(l)) status = 'no_verificado';
-      continue;
-    }
-
-    // Append body line to current section
-    const cleanContent = l.replace(/^\*+|\*+$/g, '').trim();
-    if (currentSection === 'def') academicDefinition += (academicDefinition ? '\n' : '') + cleanContent;
-    else if (currentSection === 'plain') plainExplanation += (plainExplanation ? '\n' : '') + cleanContent;
-    else if (currentSection === 'example') illustrativeExample += (illustrativeExample ? '\n' : '') + cleanContent;
-  }
-
-  if (!academicDefinition) academicDefinition = rawText.trim();
-  if (!plainExplanation) plainExplanation = 'Explicación didáctica orientada al marco teórico del apunte.';
-  if (!illustrativeExample) illustrativeExample = 'Aplicación práctica del concepto en contextos de estudio.';
-
-  return {
-    academicDefinition: academicDefinition.trim(),
-    plainExplanation: plainExplanation.trim(),
-    illustrativeExample: illustrativeExample.trim(),
-    academicField: academicField.trim() || defaultSubject,
-    status,
-  };
-}
-
-// Resilient API caller with retry for 503 demand spikes and graceful fallback for 429 quota exhaustion
-async function callGeminiWithResilience(options: {
-  prompt: string;
-  withSearch?: boolean;
-  temperature?: number;
-}): Promise<{
-  text: string;
-  candidate?: any;
-  groundingMeta?: any;
-  groundingUsed: boolean;
-  quotaExceeded: boolean;
-  modelUsed: string;
-}> {
+// Helper: execute Google Search / Grounding with model resilience and strict response validation
+async function executeSearchOrGroundingWithResilience(
+  termItem: ContextualDefinitionTermInput,
+  modality: 'google_search' | 'grounding'
+) {
   if (!ai) {
-    throw new Error('Servicio de IA no disponible en el servidor (GEMINI_API_KEY no configurada).');
+    throw new ConceptDefinitionError(
+      'TRANSIENT_ERROR',
+      'Servicio de IA no disponible en el servidor (GEMINI_API_KEY no configurada).',
+      503,
+      true,
+      undefined,
+      'model_invocation'
+    );
   }
 
-  const { prompt, withSearch = false, temperature = 0.2 } = options;
-
-  // Single invocation with progressive delay retry for 503 demand spikes
-  async function invokeWithRetry(model: string, config: any = {}, maxRetries = 3) {
-    let lastErr: any = null;
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      try {
-        return await ai!.models.generateContent({
-          model,
-          contents: prompt,
-          config,
-        });
-      } catch (err: any) {
-        lastErr = err;
-        const msg = err?.message || String(err);
-        const is503 =
-          err?.status === 503 ||
-          msg.includes('503') ||
-          msg.includes('high demand') ||
-          msg.includes('UNAVAILABLE');
-
-        if (is503 && attempt < maxRetries) {
-          const delay = attempt * 1200;
-          console.warn(`[Nexo Notes] 503 Spike en ${model} (intento ${attempt}/${maxRetries}). Reintentando en ${delay}ms...`);
-          await new Promise((resolve) => setTimeout(resolve, delay));
-          continue;
-        }
-        throw err;
-      }
-    }
-    throw lastErr;
+  const resolvedContext = resolveDefinitionPromptContext(termItem);
+  if (!resolvedContext.termName) {
+    throw new ConceptDefinitionError(
+      'INVALID_REQUEST',
+      modality === 'grounding'
+        ? 'Nombre del término requerido para contrastación con Grounding.'
+        : 'Nombre del término requerido para búsqueda de fuentes.',
+      400,
+      false,
+      'Missing termName in request',
+      'request_validation'
+    );
   }
 
-  // Branch A: Google Search / Grounding Requested
-  if (withSearch) {
+  const prompt =
+    modality === 'grounding'
+      ? buildVerifyGroundingPrompt(termItem)
+      : buildSearchSourcesPrompt(termItem);
+
+  const models = [DEFINITION_PRIMARY_MODEL, DEFINITION_FALLBACK_MODEL];
+  let currentModelIndex = 0;
+  let attemptCountForCurrentModel = 0;
+  let totalAttempts = 0;
+  let switchedDueTo429 = false;
+  let lastError: ConceptDefinitionError | null = null;
+  const maxAttemptsPerModel = 2;
+  const baseDelayMs = 700;
+
+  while (currentModelIndex < models.length) {
+    const model = models[currentModelIndex];
+    totalAttempts++;
+    attemptCountForCurrentModel++;
+
     try {
-      const response = await invokeWithRetry(
-        'gemini-3.8-flash',
-        {
+      if (totalAttempts > 1) {
+        console.warn(
+          `[Nexo Notes] Reintentando ${modality} para "${resolvedContext.termName}" (intento ${totalAttempts}, modelo ${model})...`
+        );
+      }
+
+      const response = await ai.models.generateContent({
+        model,
+        contents: prompt,
+        config: {
           tools: [{ googleSearch: {} }],
-          temperature,
+          temperature: modality === 'grounding' ? 0.15 : 0.2,
         },
-        2
-      );
+      });
+
+      const rawText = response.text ?? '';
       const candidate = response.candidates?.[0];
       const groundingMeta = candidate?.groundingMetadata;
+
+      const validated = parseAndValidateSearchGroundingResponse(rawText, {
+        termName: resolvedContext.termName,
+        defaultAcademicField: resolvedContext.effectiveSubject,
+        hasSpecificDiscipline: resolvedContext.hasSpecificDiscipline,
+        hasContextualEvidence: resolvedContext.hasContextualEvidence,
+      });
+
       return {
-        text: response.text || '',
-        candidate,
+        validated,
+        rawText,
         groundingMeta,
-        groundingUsed: true,
-        quotaExceeded: false,
-        modelUsed: 'gemini-3.8-flash',
+        modelUsed: model,
+        resolvedContext,
       };
-    } catch (searchErr: any) {
-      const msg = searchErr?.message || String(searchErr);
-      const isQuota =
-        searchErr?.status === 429 ||
-        msg.includes('429') ||
-        msg.includes('RESOURCE_EXHAUSTED') ||
-        msg.includes('quota');
+    } catch (err: unknown) {
+      const classified = classifySearchGroundingError(err, modality, 'model_invocation');
+      lastError = classified;
+      console.warn(
+        `[Nexo Notes][${modality}][diag] attempt=${totalAttempts} model=${model} areaId=${resolvedContext.areaId} stage=${classified.stage} kind=${classified.kind} status=${classified.statusCode} reason="${classified.details || classified.message}"`
+      );
 
-      console.warn(`[Nexo Notes] Herramienta Google Search no disponible (${isQuota ? '429 Quota Exceeded' : searchErr?.status || 'Error'}). Generando análisis contextual sin herramientas externas.`);
+      // 1. Error permanente (400, credenciales inválidas, etc.): no reintentar
+      if (
+        !classified.retryable ||
+        classified.statusCode === 400 ||
+        classified.statusCode === 401 ||
+        classified.statusCode === 403
+      ) {
+        throw classified;
+      }
 
-      // Resilient text generation fallback without external tools (preserves complete educational content)
-      try {
-        const fallbackRes = await invokeWithRetry(
-          'gemini-3.5-flash-lite',
-          { temperature: 0.2 },
-          3
-        );
-        return {
-          text: fallbackRes.text || '',
-          candidate: fallbackRes.candidates?.[0],
-          groundingMeta: null,
-          groundingUsed: false,
-          quotaExceeded: isQuota,
-          modelUsed: 'gemini-3.5-flash-lite',
-        };
-      } catch {
-        const textRes = await invokeWithRetry('gemini-3.8-flash', { temperature: 0.2 }, 2);
-        return {
-          text: textRes.text || '',
-          candidate: textRes.candidates?.[0],
-          groundingMeta: null,
-          groundingUsed: false,
-          quotaExceeded: isQuota,
-          modelUsed: 'gemini-3.8-flash',
-        };
+      // 2. Límite de cuota o solicitudes (429 RESOURCE_EXHAUSTED):
+      if (classified.statusCode === 429) {
+        // No repetir inmediatamente el mismo modelo.
+        // Si ya habíamos conmutado al modelo alternativo por 429 y este también falla por cuota:
+        // detener de inmediato los reintentos
+        if (switchedDueTo429) {
+          throw classified;
+        }
+
+        switchedDueTo429 = true;
+        currentModelIndex++;
+        attemptCountForCurrentModel = 0;
+
+        if (currentModelIndex >= models.length) {
+          throw classified;
+        }
+
+        if (baseDelayMs > 0) {
+          await new Promise((resolve) => setTimeout(resolve, Math.min(baseDelayMs, 300)));
+        }
+        continue;
+      }
+
+      // 3. Errores transitorios (503 alta demanda, timeout 504, etc.):
+      // Permite hasta maxAttemptsPerModel en el modelo actual.
+      // Si el modelo principal dio 429 y el alternativo da 503 o timeout,
+      // permite una recuperación razonable con espera en el alternativo (hasta maxAttemptsPerModel, acotando a 3 llamadas totales)
+      if (attemptCountForCurrentModel < maxAttemptsPerModel) {
+        if (baseDelayMs > 0) {
+          await new Promise((resolve) =>
+            setTimeout(resolve, baseDelayMs * attemptCountForCurrentModel)
+          );
+        }
+        continue;
+      } else {
+        currentModelIndex++;
+        attemptCountForCurrentModel = 0;
+        if (currentModelIndex < models.length && baseDelayMs > 0) {
+          await new Promise((resolve) => setTimeout(resolve, baseDelayMs));
+        }
       }
     }
   }
 
-  // Branch B: Pure Contextual Text Generation (Default mode, no external web tools)
-  try {
-    const response = await invokeWithRetry('gemini-3.8-flash', { temperature }, 2);
-    return {
-      text: response.text || '',
-      candidate: response.candidates?.[0],
-      groundingMeta: null,
-      groundingUsed: false,
-      quotaExceeded: false,
-      modelUsed: 'gemini-3.8-flash',
-    };
-  } catch (primaryErr: any) {
-    console.warn(`[Nexo Notes] gemini-3.8-flash temporalmente no disponible (${primaryErr?.status || primaryErr?.message}). Conmutando a gemini-3.5-flash-lite.`);
-    const liteResponse = await invokeWithRetry('gemini-3.5-flash-lite', { temperature }, 3);
-    return {
-      text: liteResponse.text || '',
-      candidate: liteResponse.candidates?.[0],
-      groundingMeta: null,
-      groundingUsed: false,
-      quotaExceeded: false,
-      modelUsed: 'gemini-3.5-flash-lite',
-    };
-  }
+  throw (
+    lastError ||
+    new ConceptDefinitionError(
+      'TRANSIENT_ERROR',
+      `No se pudo completar la consulta externa para "${resolvedContext.termName}".`,
+      503,
+      true,
+      'All search/grounding attempts exhausted',
+      'model_invocation'
+    )
+  );
 }
 
 // Modalidad A: Definición contextual (modo predeterminado)
 // NO activa Google Search Grounding ni búsquedas web externas.
-async function defineContextualConcept(termItem: { name: string; context?: string; subject?: string }) {
-  const termName = (termItem.name || '').replace(/^["'«“]+|["'»”]+$/g, '').trim();
-  if (!termName) {
-    throw new Error('Nombre del término requerido para definición contextual.');
+async function defineContextualConcept(termItem: ContextualDefinitionTermInput) {
+  if (!ai) {
+    throw new ConceptDefinitionError(
+      'TRANSIENT_ERROR',
+      'Servicio de IA no disponible en el servidor (GEMINI_API_KEY no configurada).',
+      503,
+      true,
+      undefined,
+      'model_invocation'
+    );
   }
 
-  const context = (termItem.context || '').trim();
-  const subject = (termItem.subject || '').trim() || 'General';
-
-  const prompt = `Analiza y define contextualmente el término técnico "${termName}".
-Contexto de uso dentro del documento del estudiante: "${context || 'Contexto de estudio académico'}".
-Materia o disciplina: "${subject}".
-
-INSTRUCCIONES CLAVE:
-1. Define el término teniendo estrictamente en cuenta el contexto del documento y la disciplina.
-2. NO realices suposiciones sin sustento teórico.
-3. Devuelve las secciones:
-   - academicDefinition: Definición académica rigurosa en su marco teórico.
-   - plainExplanation: Explicación clara en lenguaje sencillo y pedagógico.
-   - illustrativeExample: Ejemplo didáctico de aplicación directa.
-   - academicField: Disciplina o especialidad pertinente.
-
-Estructura de respuesta:
-academicDefinition: <definición>
-plainExplanation: <explicación>
-illustrativeExample: <ejemplo>
-academicField: <disciplina>`;
-
-  const { text, modelUsed } = await callGeminiWithResilience({
-    prompt,
-    withSearch: false,
-    temperature: 0.2,
-  });
-
-  const parsed = parseSectionsFromModelResponse(text, subject);
+  const { definition, modelUsed, resolvedContext } =
+    await generateContextualDefinitionWithResilience(
+      termItem,
+      async ({ model, prompt, attempt, termName }) => {
+        if (attempt > 1) {
+          console.warn(
+            `[Nexo Notes] Reintentando definición contextual de "${termName}" (intento ${attempt}, modelo ${model})...`
+          );
+        }
+        const response = await ai!.models.generateContent({
+          model,
+          contents: prompt,
+          config: {
+            responseMimeType: 'application/json',
+            responseSchema: {
+              type: Type.OBJECT,
+              properties: {
+                academicDefinition: {
+                  type: Type.STRING,
+                  description:
+                    'Definición académica rigurosa que comienza directamente explicando qué es el concepto, su significado o su mecanismo (sin preámbulos metadiscursivos como "Dado que el término carece de contexto...").',
+                },
+                plainExplanation: {
+                  type: Type.STRING,
+                  description:
+                    'Explicación pedagógica en lenguaje natural mediante oraciones completas con verbo principal (sin iniciar con "Para un estudiante universitario, entender...").',
+                },
+                illustrativeExample: {
+                  type: Type.STRING,
+                  description:
+                    'Ejemplo concreto, completo y aplicado del concepto (en la disciplina correspondiente o comparando brevemente sus usos si el contexto es general o ambiguo).',
+                },
+                academicField: {
+                  type: Type.STRING,
+                  description:
+                    'Disciplina o subdisciplina académica aplicable según la evidencia disponible, o "General o multidisciplinario" cuando el contexto sea general o insuficiente para fijar una única disciplina.',
+                },
+              },
+              required: [
+                'academicDefinition',
+                'plainExplanation',
+                'illustrativeExample',
+                'academicField',
+              ],
+            },
+            temperature: 0.2,
+          },
+        });
+        return response.text ?? '';
+      },
+      {
+        onDiagnostic: (diag) => {
+          console.warn(
+            `[Nexo Notes][define-contextual][diag] attempt=${diag.attempt} model=${diag.model} areaId=${diag.areaId} stage=${diag.stage} kind=${diag.errorKind} retryable=${diag.retryable} reason="${diag.reason}"`
+          );
+        },
+      }
+    );
 
   return {
-    termName,
-    academicField: parsed.academicField,
-    context,
-    academicDefinition: parsed.academicDefinition,
-    plainExplanation: parsed.plainExplanation,
-    illustrativeExample: parsed.illustrativeExample,
+    termName: resolvedContext.termName,
+    academicField: definition.academicField,
+    context: resolvedContext.contextSnippet || (termItem.context || '').trim(),
+    academicDefinition: definition.academicDefinition,
+    plainExplanation: definition.plainExplanation,
+    illustrativeExample: definition.illustrativeExample,
     sources: [],
     supportedSegments: [],
     verificationStatus: 'no_verificado' as const,
@@ -489,213 +454,80 @@ academicField: <disciplina>`;
 // Modalidad B: Búsqueda de fuentes en Google Search
 // Realiza una búsqueda web relacionada con el término y su contexto académico.
 // Muestra enlaces reales, títulos y fragmentos relevantes sin atribuir verificación automática.
-async function searchSourcesForConcept(termItem: { name: string; context?: string; subject?: string }) {
-  const termName = (termItem.name || '').replace(/^["'«“]+|["'»”]+$/g, '').trim();
-  if (!termName) {
-    throw new Error('Nombre del término requerido para búsqueda de fuentes.');
-  }
+async function searchSourcesForConcept(termItem: ContextualDefinitionTermInput) {
+  const { validated, groundingMeta, modelUsed, resolvedContext } =
+    await executeSearchOrGroundingWithResilience(termItem, 'google_search');
 
-  const context = (termItem.context || '').trim();
-  const subject = (termItem.subject || '').trim() || 'General';
+  const { uniqueSources, queriesConsulted } = extractGroundingSourcesAndSegments(
+    groundingMeta,
+    'Fuente consultada en Google Search'
+  );
 
-  const prompt = `Realiza una búsqueda documental y bibliográfica en Google Search para el término académico "${termName}".
-Materia o campo disciplinar: "${subject}".
-Contexto académico de procedencia: "${context || 'Contexto de estudio académico'}".
-
-INSTRUCCIONES:
-1. Consulta fuentes documentales académicas, universitarias, repositorios o publicaciones especializadas mediante Google Search.
-2. Presenta un resumen de los hallazgos en las fuentes encontradas.
-3. NO inventes enlaces ni afirmaciones no presentes en los resultados de búsqueda.
-4. Devuelve:
-   - academicDefinition: Síntesis conceptual de lo documentado en las fuentes.
-   - plainExplanation: Explicación didáctica sobre los hallazgos.
-   - illustrativeExample: Ejemplo de aplicación según la bibliografía.
-   - academicField: Disciplina confirmada.
-
-Estructura de respuesta:
-academicDefinition: <síntesis según fuentes>
-plainExplanation: <explicación>
-illustrativeExample: <ejemplo>
-academicField: <disciplina>`;
-
-  const { text, groundingMeta, quotaExceeded, modelUsed } = await callGeminiWithResilience({
-    prompt,
-    withSearch: true,
-    temperature: 0.2,
+  const outcome = resolveSearchSourcesOutcome({
+    uniqueSources,
+    searchPerformed: true,
   });
 
-  const parsed = parseSectionsFromModelResponse(text, subject);
-
-  // Extract authentic sources from groundingChunks and map to supporting segments
-  const sources: Array<{ title: string; url: string; snippet?: string; accessedAt: string }> = [];
-  const chunks = groundingMeta?.groundingChunks;
-  const supports = groundingMeta?.groundingSupports;
-
-  if (Array.isArray(chunks)) {
-    chunks.forEach((chunk: any, index: number) => {
-      if (chunk.web?.uri) {
-        let snippet = '';
-        if (Array.isArray(supports)) {
-          const matchSup = supports.find((s: any) => Array.isArray(s.groundingChunkIndices) && s.groundingChunkIndices.includes(index));
-          if (matchSup?.segment?.text) snippet = matchSup.segment.text.trim();
-        }
-        sources.push({
-          title: chunk.web.title || 'Fuente consultada en Google Search',
-          url: chunk.web.uri,
-          snippet: snippet || undefined,
-          accessedAt: new Date().toISOString(),
-        });
-      }
-    });
-  }
-
-  const uniqueSources = sources.filter((s, idx, arr) => idx === arr.findIndex((x) => x.url === s.url));
-
-  let notice = 'Fuentes consultadas en la web. No constituye verificación automática de afirmaciones.';
-  let queryStatus: 'fuentes_consultadas' | 'sin_verificar' = 'fuentes_consultadas';
-
-  if (quotaExceeded) {
-    notice = 'Cuota de Google Search temporalmente agotada en la API (429 RESOURCE_EXHAUSTED). Se proporciona definición académica contextual sin fuentes externas.';
-    queryStatus = 'sin_verificar';
-  } else if (uniqueSources.length === 0) {
-    notice = 'Búsqueda completada: no se encontraron fuentes específicas en el índice web para este término.';
-    queryStatus = 'sin_verificar';
-  }
-
   return {
-    termName,
-    academicField: parsed.academicField,
-    context,
-    academicDefinition: parsed.academicDefinition,
-    plainExplanation: parsed.plainExplanation,
-    illustrativeExample: parsed.illustrativeExample,
+    termName: resolvedContext.termName,
+    academicField: validated.academicField,
+    context: resolvedContext.contextSnippet || (termItem.context || '').trim(),
+    academicDefinition: validated.academicDefinition,
+    plainExplanation: validated.plainExplanation,
+    illustrativeExample: validated.illustrativeExample,
     sources: uniqueSources,
     supportedSegments: [],
-    verificationStatus: uniqueSources.length > 0 ? ('verificado' as const) : ('no_verificado' as const),
-    queryStatus,
-    queriesConsulted: groundingMeta?.webSearchQueries || [termName],
-    groundingUsed: false,
-    quotaExceeded,
+    verificationStatus: outcome.verificationStatus,
+    queryStatus: outcome.queryStatus,
+    queriesConsulted: queriesConsulted.length > 0 ? queriesConsulted : [resolvedContext.termName],
+    groundingUsed: outcome.groundingUsed,
+    quotaExceeded: false,
     modelUsed,
     analyzedAt: new Date().toISOString(),
     consultedAt: new Date().toISOString(),
-    notice,
+    notice: outcome.notice,
   };
 }
 
 // Modalidad C: Verificación rigurosa con Google Search Grounding
 // Solo se ejecuta tras solicitud explícita del usuario.
-// Distingue entre información respaldada por fuentes, inferencias y afirmaciones no verificadas.
-async function verifyGroundingForConcept(termItem: { name: string; context?: string; subject?: string }) {
-  const termName = (termItem.name || '').replace(/^["'«“]+|["'»”]+$/g, '').trim();
-  if (!termName) {
-    throw new Error('Nombre del término requerido para contrastación con Grounding.');
-  }
+// Distingue entre encontrar fuentes y verificar una afirmación respaldada.
+async function verifyGroundingForConcept(termItem: ContextualDefinitionTermInput) {
+  const { validated, rawText, groundingMeta, modelUsed, resolvedContext } =
+    await executeSearchOrGroundingWithResilience(termItem, 'grounding');
 
-  const context = (termItem.context || '').trim();
-  const subject = (termItem.subject || '').trim() || 'General';
+  const { uniqueSources, supportedSegments, queriesConsulted } =
+    extractGroundingSourcesAndSegments(
+      groundingMeta,
+      'Fuente contrastada vía Google Search Grounding'
+    );
 
-  const prompt = `Realiza una fundamentación y contrastación académica rigurosa del concepto "${termName}".
-Contexto del apunte del estudiante: "${context || 'Contexto de estudio académico'}".
-Materia o disciplina: "${subject}".
-
-INSTRUCCIONES DE VERIFICACIÓN Y CONTRASTACIÓN:
-1. Utiliza Google Search Grounding para contrastar afirmaciones con fuentes contrastables (diccionarios especializados, universidades, manuales, publicaciones indexadas).
-2. DISTINGUE CLARAMENTE:
-   - Afirmaciones respaldadas por fuentes contrastadas.
-   - Inferencias o deducciones teóricas del modelo.
-   - Aspectos que no se pudieron verificar por falta de fuentes suficientes.
-3. Si el concepto carece de evidencia o es una invención/error, señala expresamente "No se pudo verificar este concepto".
-4. Redacta:
-   - academicDefinition: Definición académica precisa y respaldada.
-   - plainExplanation: Explicación en lenguaje sencillo para un estudiante.
-   - illustrativeExample: Ejemplo didáctico de aplicación práctica.
-   - academicField: Disciplina o campo de aplicación principal.
-   - verificationStatus: "verificado" (si existen fuentes sólidas), "discrepancia" (si existen posturas encontradas en la literatura), o "no_verificado" (si no hay suficiente respaldo).
-
-Estructura de respuesta:
-academicDefinition: <definición>
-plainExplanation: <explicación>
-illustrativeExample: <ejemplo>
-academicField: <disciplina>
-verificationStatus: <verificado | discrepancia | no_verificado>`;
-
-  const { text, groundingMeta, groundingUsed, quotaExceeded, modelUsed } = await callGeminiWithResilience({
-    prompt,
-    withSearch: true,
-    temperature: 0.15,
+  const outcome = resolveVerifyGroundingOutcome({
+    uniqueSources,
+    supportedSegments,
+    reportedStatus: validated.reportedStatus,
+    rawText,
+    searchPerformed: true,
   });
 
-  const parsed = parseSectionsFromModelResponse(text, subject);
-
-  // Extract genuine web search sources and map to supporting segments
-  const sources: Array<{ title: string; url: string; snippet?: string; accessedAt: string }> = [];
-  const supportedSegments: string[] = [];
-  const chunks = groundingMeta?.groundingChunks;
-  const supports = groundingMeta?.groundingSupports;
-
-  if (Array.isArray(chunks)) {
-    chunks.forEach((chunk: any, index: number) => {
-      if (chunk.web?.uri) {
-        let snippet = '';
-        if (Array.isArray(supports)) {
-          const matchSup = supports.find((s: any) => Array.isArray(s.groundingChunkIndices) && s.groundingChunkIndices.includes(index));
-          if (matchSup?.segment?.text) {
-            snippet = matchSup.segment.text.trim();
-            if (!supportedSegments.includes(snippet)) {
-              supportedSegments.push(snippet);
-            }
-          }
-        }
-        sources.push({
-          title: chunk.web.title || 'Fuente contrastada vía Google Search Grounding',
-          url: chunk.web.uri,
-          snippet: snippet || undefined,
-          accessedAt: new Date().toISOString(),
-        });
-      }
-    });
-  }
-
-  const uniqueSources = sources.filter((s, idx, arr) => idx === arr.findIndex((x) => x.url === s.url));
-
-  let finalStatus = parsed.status;
-  let notice = 'Contrastado con fuentes web vía Google Search Grounding';
-  let queryStatus: 'contrastado_web' | 'sin_verificar' = 'contrastado_web';
-
-  if (quotaExceeded || !groundingUsed) {
-    finalStatus = 'no_verificado';
-    queryStatus = 'sin_verificar';
-    notice = 'Cuota de Google Search Grounding agotada en la API (429 RESOURCE_EXHAUSTED). Definición generada contextualmente sin contrastación web externa.';
-  } else if (uniqueSources.length === 0) {
-    finalStatus = 'no_verificado';
-    notice = 'No se encontraron fuentes web suficientes para contrastar este concepto.';
-  } else if (text.toLowerCase().includes('no se pudo verificar') || text.toLowerCase().includes('sin respaldo')) {
-    finalStatus = 'no_verificado';
-    notice = 'Información no contrastable: fuentes insuficientes o controvertidas.';
-  } else if (text.toLowerCase().includes('discrepan') || text.toLowerCase().includes('discrepancia')) {
-    finalStatus = 'discrepancia';
-    notice = 'Contrastado: se detectaron discrepancias teóricas entre fuentes.';
-  }
-
   return {
-    termName,
-    academicField: parsed.academicField,
-    context,
-    academicDefinition: parsed.academicDefinition,
-    plainExplanation: parsed.plainExplanation,
-    illustrativeExample: parsed.illustrativeExample,
+    termName: resolvedContext.termName,
+    academicField: validated.academicField,
+    context: resolvedContext.contextSnippet || (termItem.context || '').trim(),
+    academicDefinition: validated.academicDefinition,
+    plainExplanation: validated.plainExplanation,
+    illustrativeExample: validated.illustrativeExample,
     sources: uniqueSources,
     supportedSegments,
-    verificationStatus: finalStatus,
-    queryStatus,
-    queriesConsulted: groundingMeta?.webSearchQueries || [termName],
-    groundingUsed: groundingUsed && uniqueSources.length > 0,
-    quotaExceeded,
+    verificationStatus: outcome.verificationStatus,
+    queryStatus: outcome.queryStatus,
+    queriesConsulted: queriesConsulted.length > 0 ? queriesConsulted : [resolvedContext.termName],
+    groundingUsed: outcome.groundingUsed,
+    quotaExceeded: false,
     modelUsed,
     analyzedAt: new Date().toISOString(),
     consultedAt: new Date().toISOString(),
-    notice,
+    notice: outcome.notice,
   };
 }
 
@@ -704,20 +536,26 @@ app.post('/api/analyze/define-contextual', async (req: Request, res: Response) =
   try {
     const { term } = req.body;
     if (!term || typeof term.name !== 'string' || !term.name.trim()) {
-      return res.status(400).json({ error: 'Parámetro "term" con nombre válido requerido.' });
+      return res.status(400).json({
+        error: 'Parámetro "term" con nombre válido requerido.',
+        stage: 'request_validation',
+        errorKind: 'INVALID_REQUEST',
+      });
     }
     const result = await defineContextualConcept(term);
     return res.json({ result });
-  } catch (error: any) {
-    console.error('Error en /api/analyze/define-contextual:', error);
-    const msg = error?.message || String(error);
-    const isQuota = msg.includes('429') || msg.includes('quota') || msg.includes('RESOURCE_EXHAUSTED');
-    const isDemand = msg.includes('503') || msg.includes('UNAVAILABLE') || msg.includes('high demand');
-    const status = isQuota ? 429 : isDemand ? 503 : 500;
-    return res.status(status).json({
-      error: 'Error al generar definición contextual.',
-      details: msg,
-      code: status,
+  } catch (error: unknown) {
+    const classified = classifyDefinitionError(error);
+    console.error(
+      `[Nexo Notes][define-contextual][error] stage=${classified.stage} kind=${classified.kind} status=${classified.statusCode} retryable=${classified.retryable} reason="${classified.details || classified.message}"`
+    );
+    return res.status(classified.statusCode).json({
+      error: classified.message,
+      details: classified.details || classified.message,
+      errorKind: classified.kind,
+      stage: classified.stage,
+      retryable: classified.retryable,
+      code: classified.statusCode,
     });
   }
 });
@@ -727,20 +565,26 @@ app.post('/api/analyze/search-sources', async (req: Request, res: Response) => {
   try {
     const { term } = req.body;
     if (!term || typeof term.name !== 'string' || !term.name.trim()) {
-      return res.status(400).json({ error: 'Parámetro "term" con nombre válido requerido.' });
+      return res.status(400).json({
+        error: 'Parámetro "term" con nombre válido requerido.',
+        stage: 'request_validation',
+        errorKind: 'INVALID_REQUEST',
+      });
     }
     const result = await searchSourcesForConcept(term);
     return res.json({ result });
-  } catch (error: any) {
-    console.error('Error en /api/analyze/search-sources:', error);
-    const msg = error?.message || String(error);
-    const isQuota = msg.includes('429') || msg.includes('quota') || msg.includes('RESOURCE_EXHAUSTED');
-    const isDemand = msg.includes('503') || msg.includes('UNAVAILABLE') || msg.includes('high demand');
-    const status = isQuota ? 429 : isDemand ? 503 : 500;
-    return res.status(status).json({
-      error: 'Error al buscar fuentes en Google.',
-      details: msg,
-      code: status,
+  } catch (error: unknown) {
+    const classified = classifySearchGroundingError(error, 'google_search');
+    console.error(
+      `[Nexo Notes][search-sources][error] stage=${classified.stage} kind=${classified.kind} status=${classified.statusCode} retryable=${classified.retryable} reason="${classified.details || classified.message}"`
+    );
+    return res.status(classified.statusCode).json({
+      error: classified.message,
+      details: classified.details || classified.message,
+      errorKind: classified.kind,
+      stage: classified.stage,
+      retryable: classified.retryable,
+      code: classified.statusCode,
     });
   }
 });
@@ -750,20 +594,26 @@ app.post('/api/analyze/verify-grounding', async (req: Request, res: Response) =>
   try {
     const { term } = req.body;
     if (!term || typeof term.name !== 'string' || !term.name.trim()) {
-      return res.status(400).json({ error: 'Parámetro "term" con nombre válido requerido.' });
+      return res.status(400).json({
+        error: 'Parámetro "term" con nombre válido requerido.',
+        stage: 'request_validation',
+        errorKind: 'INVALID_REQUEST',
+      });
     }
     const result = await verifyGroundingForConcept(term);
     return res.json({ result });
-  } catch (error: any) {
-    console.error('Error en /api/analyze/verify-grounding:', error);
-    const msg = error?.message || String(error);
-    const isQuota = msg.includes('429') || msg.includes('quota') || msg.includes('RESOURCE_EXHAUSTED');
-    const isDemand = msg.includes('503') || msg.includes('UNAVAILABLE') || msg.includes('high demand');
-    const status = isQuota ? 429 : isDemand ? 503 : 500;
-    return res.status(status).json({
-      error: 'Error al contrastar con Google Grounding.',
-      details: msg,
-      code: status,
+  } catch (error: unknown) {
+    const classified = classifySearchGroundingError(error, 'grounding');
+    console.error(
+      `[Nexo Notes][verify-grounding][error] stage=${classified.stage} kind=${classified.kind} status=${classified.statusCode} retryable=${classified.retryable} reason="${classified.details || classified.message}"`
+    );
+    return res.status(classified.statusCode).json({
+      error: classified.message,
+      details: classified.details || classified.message,
+      errorKind: classified.kind,
+      stage: classified.stage,
+      retryable: classified.retryable,
+      code: classified.statusCode,
     });
   }
 });

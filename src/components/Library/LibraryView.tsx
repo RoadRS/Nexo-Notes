@@ -12,6 +12,9 @@ import {
   Loader2,
 } from 'lucide-react';
 
+// Fase 3.1: Retirada temporal y reversible de los botones de importación PDF/PPT y análisis de documentos
+const ENABLE_DOCUMENT_IMPORT_AND_ANALYSIS_UI = false;
+
 export const LibraryView: React.FC<{
   onAnalyzeDocument: (doc: DocumentEntity, pageRange?: number[]) => void;
 }> = ({ onAnalyzeDocument }) => {
@@ -151,32 +154,34 @@ export const LibraryView: React.FC<{
             </p>
           </div>
 
-          <div className="shrink-0 flex flex-col sm:flex-row md:flex-col items-stretch sm:items-center md:items-end gap-2">
-            <label
-              className={`inline-flex items-center justify-center gap-2 min-h-[44px] px-5 py-2.5 rounded-xl font-semibold text-sm transition-colors shadow-2xs focus-within:ring-2 focus-within:ring-indigo-600 focus-within:ring-offset-2 ${
-                isProcessing
-                  ? 'bg-stone-200 dark:bg-stone-800 text-stone-700 dark:text-stone-300 cursor-wait'
-                  : 'bg-indigo-600 hover:bg-indigo-700 text-white cursor-pointer'
-              }`}
-            >
-              {isProcessing ? (
-                <Loader2 className="w-4 h-4 animate-spin shrink-0" />
-              ) : (
-                <UploadCloud className="w-4 h-4 shrink-0" />
-              )}
-              <span>{isProcessing ? 'Procesando archivo…' : 'Importar documento'}</span>
-              <input
-                type="file"
-                accept=".pdf,.pptx,.ppt,.txt,.md"
-                onChange={handleFileUpload}
-                disabled={isProcessing}
-                className="sr-only"
-              />
-            </label>
-            <span className="text-[11px] text-stone-500 dark:text-stone-400 text-center md:text-right">
-              Formatos admitidos: PDF, PPTX, TXT, MD
-            </span>
-          </div>
+          {ENABLE_DOCUMENT_IMPORT_AND_ANALYSIS_UI && (
+            <div className="shrink-0 flex flex-col sm:flex-row md:flex-col items-stretch sm:items-center md:items-end gap-2">
+              <label
+                className={`inline-flex items-center justify-center gap-2 min-h-[44px] px-5 py-2.5 rounded-xl font-semibold text-sm transition-colors shadow-2xs focus-within:ring-2 focus-within:ring-indigo-600 focus-within:ring-offset-2 ${
+                  isProcessing
+                    ? 'bg-stone-200 dark:bg-stone-800 text-stone-700 dark:text-stone-300 cursor-wait'
+                    : 'bg-indigo-600 hover:bg-indigo-700 text-white cursor-pointer'
+                }`}
+              >
+                {isProcessing ? (
+                  <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+                ) : (
+                  <UploadCloud className="w-4 h-4 shrink-0" />
+                )}
+                <span>{isProcessing ? 'Procesando archivo…' : 'Importar documento'}</span>
+                <input
+                  type="file"
+                  accept=".pdf,.pptx,.ppt,.txt,.md"
+                  onChange={handleFileUpload}
+                  disabled={isProcessing}
+                  className="sr-only"
+                />
+              </label>
+              <span className="text-[11px] text-stone-500 dark:text-stone-400 text-center md:text-right">
+                Formatos admitidos: PDF, PPTX, TXT, MD
+              </span>
+            </div>
+          )}
         </div>
 
         {isProcessing && processingStatus && (
@@ -297,17 +302,19 @@ export const LibraryView: React.FC<{
                         <Trash2 className="w-4 h-4" />
                       </button>
 
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleOpenDoc(doc);
-                        }}
-                        className="inline-flex items-center gap-1.5 min-h-[36px] px-3 py-1.5 rounded-lg text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600"
-                      >
-                        <Layers className="w-3.5 h-3.5" />
-                        <span>Seleccionar páginas</span>
-                      </button>
+                      {ENABLE_DOCUMENT_IMPORT_AND_ANALYSIS_UI && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleOpenDoc(doc);
+                          }}
+                          className="inline-flex items-center gap-1.5 min-h-[36px] px-3 py-1.5 rounded-lg text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600"
+                        >
+                          <Layers className="w-3.5 h-3.5" />
+                          <span>Seleccionar páginas</span>
+                        </button>
+                      )}
                     </div>
                   </div>
                 </article>
@@ -361,18 +368,20 @@ export const LibraryView: React.FC<{
                 >
                   Cerrar
                 </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    onAnalyzeDocument(selectedDoc, selectedPages);
-                    setSelectedDoc(null);
-                  }}
-                  disabled={selectedPages.length === 0}
-                  className="inline-flex items-center gap-1.5 min-h-[40px] px-3.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white font-semibold text-xs transition-colors shadow-2xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600"
-                >
-                  <Layers className="w-3.5 h-3.5" />
-                  <span>Analizar ({selectedPages.length})</span>
-                </button>
+                {ENABLE_DOCUMENT_IMPORT_AND_ANALYSIS_UI && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onAnalyzeDocument(selectedDoc, selectedPages);
+                      setSelectedDoc(null);
+                    }}
+                    disabled={selectedPages.length === 0}
+                    className="inline-flex items-center gap-1.5 min-h-[40px] px-3.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white font-semibold text-xs transition-colors shadow-2xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600"
+                  >
+                    <Layers className="w-3.5 h-3.5" />
+                    <span>Analizar ({selectedPages.length})</span>
+                  </button>
+                )}
               </div>
             </div>
 

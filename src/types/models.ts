@@ -7,6 +7,49 @@ export type ThemePreference = 'light' | 'dark' | 'system';
 
 export type VerificationStatus = 'verificado' | 'discrepancia' | 'no_verificado' | 'pendiente';
 
+export type AcademicAreaId =
+  | 'psicologia'
+  | 'salud_vida'
+  | 'ciencias_naturales'
+  | 'humanidades_filosofia'
+  | 'ciencias_sociales'
+  | 'ingenieria_tecnologia'
+  | 'economia_negocios_derecho'
+  | 'educacion'
+  | 'general';
+
+export type DisciplineMode = 'auto' | 'manual';
+
+export type DisciplineEvidenceLevel = 'high' | 'medium' | 'low';
+
+export type ContextResolutionSource =
+  | 'query_override'
+  | 'note_manual'
+  | 'note_auto'
+  | 'global_profile'
+  | 'multidisciplinary_ambiguous';
+
+export interface AcademicProfile {
+  primaryArea: AcademicAreaId;
+  career?: string;
+  specialty?: string;
+  updatedAt: number;
+}
+
+export interface ResolvedAcademicContext {
+  areaId: AcademicAreaId;
+  disciplineLabel: string;
+  specificSubject?: string;
+  career?: string;
+  specialty?: string;
+  queryInstruction?: string;
+  source: ContextResolutionSource;
+  confidence: DisciplineEvidenceLevel;
+  isAmbiguous: boolean;
+  evidenceTerms?: string[];
+  rationale?: string;
+}
+
 export interface SourceReference {
   title: string;
   url: string;
@@ -27,6 +70,10 @@ export interface NoteEntity {
   lastAnalyzedAt?: number;
   wordCount: number;
   charCount: number;
+  disciplineMode?: DisciplineMode;
+  manualDiscipline?: AcademicAreaId | string;
+  detectedDiscipline?: AcademicAreaId;
+  detectedDisciplineConfidence?: DisciplineEvidenceLevel;
 }
 
 export interface FolderEntity {
@@ -44,6 +91,7 @@ export interface ConceptEntity {
   termName: string;
   normalizedName: string;
   academicField: string;
+  academicAreaId?: AcademicAreaId;
   context: string;
   academicDefinition: string;
   plainExplanation: string;
@@ -101,12 +149,15 @@ export interface AppPreferences {
   lastSubject: string;
   showSourcesPreview: boolean;
   offlineOnlyMode: boolean;
+  academicProfile?: AcademicProfile;
+  onboardingCompleted?: boolean;
 }
 
 export interface CachedAnalysisEntity {
-  termKey: string; // normalized term name
+  termKey: string; // normalized term name or contextual cache key
   termName: string;
   academicField: string;
+  academicAreaId?: AcademicAreaId;
   academicDefinition: string;
   plainExplanation: string;
   illustrativeExample: string;
@@ -118,6 +169,7 @@ export interface CachedAnalysisEntity {
   groundingUsed: boolean;
   analyzedAt: number;
   consultedAt?: string;
+  academicContextKey?: string;
 }
 
 export interface BackupPayload {

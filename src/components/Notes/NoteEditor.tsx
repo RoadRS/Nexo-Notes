@@ -1,6 +1,13 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useApp } from '../../context/AppContext';
-import { NoteEntity } from '../../types/models';
+import { AcademicAreaId, DisciplineEvidenceLevel, DisciplineMode, NoteEntity } from '../../types/models';
+import {
+  ACADEMIC_AREAS_LIST,
+  getNoteAcademicSummary,
+  isValidAcademicAreaId,
+  setNoteAcademicMode,
+  syncNoteAcademicContext,
+} from '../../utils/academicContext';
 import {
   ArrowLeft,
   Layers,
@@ -15,6 +22,7 @@ import {
   CheckCircle2,
   Save,
   BookOpen,
+  GraduationCap,
   Plus,
   X,
 } from 'lucide-react';
@@ -24,13 +32,39 @@ export const NoteEditor: React.FC<{
   onBack: () => void;
   onAnalyze: (note: NoteEntity, selectedText?: string) => void;
 }> = ({ note, onBack, onAnalyze }) => {
-  const { folders, updateNote, deleteNote, togglePinNote, showNotification } = useApp();
+  const { folders, preferences, updateNote, deleteNote, togglePinNote, showNotification } = useApp();
+
+  const initialSyncedNote = useMemo(() => {
+    const folder = note.folderId ? folders.find((f) => f.id === note.folderId) || null : null;
+    if (
+      note.disciplineMode === 'manual' ||
+      (note.detectedDiscipline !== undefined && note.detectedDisciplineConfidence !== undefined)
+    ) {
+      return note;
+    }
+    return syncNoteAcademicContext(note, { folder });
+  }, [note.id]);
 
   const [title, setTitle] = useState(note.title);
   const [content, setContent] = useState(note.content);
   const [folderId, setFolderId] = useState(note.folderId || '');
   const [subject, setSubject] = useState(note.subject || '');
   const [tags, setTags] = useState<string[]>(note.tags || []);
+  const [disciplineMode, setDisciplineMode] = useState<DisciplineMode>(
+    initialSyncedNote.disciplineMode === 'manual' && initialSyncedNote.manualDiscipline?.trim()
+      ? 'manual'
+      : 'auto'
+  );
+  const [manualDiscipline, setManualDiscipline] = useState<string>(
+    initialSyncedNote.manualDiscipline || ''
+  );
+  const [detectedDiscipline, setDetectedDiscipline] = useState<AcademicAreaId | undefined>(
+    initialSyncedNote.detectedDiscipline
+  );
+  const [detectedDisciplineConfidence, setDetectedDisciplineConfidence] = useState<
+    DisciplineEvidenceLevel | undefined
+  >(initialSyncedNote.detectedDisciplineConfidence);
+
   const [newTagInput, setNewTagInput] = useState('');
   const [selectedText, setSelectedText] = useState('');
   const [isSaved, setIsSaved] = useState(true);
@@ -39,6 +73,44 @@ export const NoteEditor: React.FC<{
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingDraftRef = useRef<NoteEntity | null>(null);
+
+  const activeFolder = useMemo(
+    () => (folderId ? folders.find((f) => f.id === folderId) || null : null),
+    [folders, folderId]
+  );
+
+  // Memoized academic summary for UI display — uses persisted/state fields in O(1) without scanning content on every render
+  const academicSummary = useMemo(
+    () =>
+      getNoteAcademicSummary(
+        {
+          title,
+          folderId: folderId || undefined,
+          subject,
+          tags,
+          disciplineMode,
+          manualDiscipline: disciplineMode === 'manual' ? manualDiscipline : undefined,
+          detectedDiscipline,
+          detectedDisciplineConfidence,
+        },
+        {
+          folder: activeFolder,
+          academicProfile: preferences.academicProfile,
+        }
+      ),
+    [
+      title,
+      folderId,
+      subject,
+      tags,
+      disciplineMode,
+      manualDiscipline,
+      detectedDiscipline,
+      detectedDisciplineConfidence,
+      activeFolder,
+      preferences.academicProfile,
+    ]
+  );
 
   // Flush any pending debounced auto-save on unmount or before switching note
   useEffect(() => {
@@ -57,11 +129,24 @@ export const NoteEditor: React.FC<{
 
   // Synchronize state if note prop changes
   useEffect(() => {
+    const folder = note.folderId ? folders.find((f) => f.id === note.folderId) || null : null;
+    const synced =
+      note.disciplineMode === 'manual' ||
+      (note.detectedDiscipline !== undefined && note.detectedDisciplineConfidence !== undefined)
+        ? note
+        : syncNoteAcademicContext(note, { folder });
+
     setTitle(note.title);
     setContent(note.content);
     setFolderId(note.folderId || '');
     setSubject(note.subject || '');
     setTags(note.tags || []);
+    setDisciplineMode(
+      synced.disciplineMode === 'manual' && synced.manualDiscipline?.trim() ? 'manual' : 'auto'
+    );
+    setManualDiscipline(synced.manualDiscipline || '');
+    setDetectedDiscipline(synced.detectedDiscipline);
+    setDetectedDisciplineConfidence(synced.detectedDisciplineConfidence);
     setIsSaved(true);
     pendingDraftRef.current = null;
   }, [note.id]);
@@ -79,30 +164,43 @@ export const NoteEditor: React.FC<{
   }, [showConfirmDelete]);
 
   // Debounced auto-save (Room persistent database)
+  // Infers academic discipline when the debounce completes so typing does not recalculate on every keystroke
   const triggerAutoSave = (
     newTitle: string,
     newContent: string,
     newFolderId: string,
     newSubject: string,
-    newTags: string[]
+    newTags: string[],
+    newDisciplineMode: DisciplineMode = disciplineMode,
+    newManualDiscipline: string = manualDiscipline,
+    currentDetectedDiscipline: AcademicAreaId | undefined = detectedDiscipline,
+    currentDetectedConfidence: DisciplineEvidenceLevel | undefined = detectedDisciplineConfidence
   ) => {
     setIsSaved(false);
-    const nextDraft: NoteEntity = {
+    const rawDraft: NoteEntity = {
       ...note,
       title: newTitle,
       content: newContent,
       folderId: newFolderId || undefined,
       subject: newSubject,
       tags: newTags,
+      disciplineMode: newDisciplineMode,
+      manualDiscipline: newDisciplineMode === 'manual' ? newManualDiscipline : undefined,
+      detectedDiscipline: currentDetectedDiscipline,
+      detectedDisciplineConfidence: currentDetectedConfidence,
     };
-    pendingDraftRef.current = nextDraft;
+    pendingDraftRef.current = rawDraft;
 
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
 
     saveTimeoutRef.current = setTimeout(async () => {
       saveTimeoutRef.current = null;
       pendingDraftRef.current = null;
-      await updateNote(nextDraft);
+      const targetFolder = newFolderId ? folders.find((f) => f.id === newFolderId) || null : null;
+      const syncedDraft = syncNoteAcademicContext(rawDraft, { folder: targetFolder });
+      setDetectedDiscipline(syncedDraft.detectedDiscipline);
+      setDetectedDisciplineConfidence(syncedDraft.detectedDisciplineConfidence);
+      await updateNote(syncedDraft);
       setIsSaved(true);
     }, 600);
   };
@@ -114,15 +212,88 @@ export const NoteEditor: React.FC<{
 
   const handleContentChange = (val: string) => {
     setContent(val);
+    if (selectedText) {
+      setSelectedText('');
+    }
     triggerAutoSave(title, val, folderId, subject, tags);
   };
 
   const handleFolderChange = (val: string) => {
     setFolderId(val);
-    const chosen = folders.find((f) => f.id === val);
+    const chosen = folders.find((f) => f.id === val) || null;
     const nextSub = chosen?.subject || subject;
     setSubject(nextSub);
-    triggerAutoSave(title, content, val, nextSub, tags);
+    const synced = syncNoteAcademicContext(
+      {
+        ...note,
+        title,
+        content,
+        folderId: val || undefined,
+        subject: nextSub,
+        tags,
+        disciplineMode,
+        manualDiscipline: disciplineMode === 'manual' ? manualDiscipline : undefined,
+        detectedDiscipline,
+        detectedDisciplineConfidence,
+      },
+      { folder: chosen }
+    );
+    setDetectedDiscipline(synced.detectedDiscipline);
+    setDetectedDisciplineConfidence(synced.detectedDisciplineConfidence);
+    triggerAutoSave(
+      title,
+      content,
+      val,
+      nextSub,
+      tags,
+      synced.disciplineMode || 'auto',
+      synced.manualDiscipline || '',
+      synced.detectedDiscipline,
+      synced.detectedDisciplineConfidence
+    );
+  };
+
+  const handleAcademicModeChange = (nextMode: DisciplineMode, explicitManualArea?: string) => {
+    const updatedNote = setNoteAcademicMode(
+      {
+        ...note,
+        title,
+        content,
+        folderId: folderId || undefined,
+        subject,
+        tags,
+        disciplineMode,
+        manualDiscipline: manualDiscipline || undefined,
+        detectedDiscipline,
+        detectedDisciplineConfidence,
+      },
+      nextMode,
+      explicitManualArea,
+      {
+        folder: activeFolder,
+        academicProfile: preferences.academicProfile,
+      }
+    );
+
+    const resolvedMode = updatedNote.disciplineMode || 'auto';
+    const resolvedManual = updatedNote.manualDiscipline || '';
+
+    setDisciplineMode(resolvedMode);
+    setManualDiscipline(resolvedManual);
+    setDetectedDiscipline(updatedNote.detectedDiscipline);
+    setDetectedDisciplineConfidence(updatedNote.detectedDisciplineConfidence);
+
+    triggerAutoSave(
+      title,
+      content,
+      folderId,
+      subject,
+      tags,
+      resolvedMode,
+      resolvedManual,
+      updatedNote.detectedDiscipline,
+      updatedNote.detectedDisciplineConfidence
+    );
   };
 
   const handleAddTag = (e: React.KeyboardEvent | React.MouseEvent) => {
@@ -176,23 +347,38 @@ export const NoteEditor: React.FC<{
     }, 0);
   };
 
-  const handleManualSave = async (notifyIfSaved: boolean = false) => {
+  const buildCurrentSyncedNote = (): NoteEntity => {
+    return syncNoteAcademicContext(
+      {
+        ...note,
+        title,
+        content,
+        folderId: folderId || undefined,
+        subject,
+        tags,
+        disciplineMode,
+        manualDiscipline: disciplineMode === 'manual' ? manualDiscipline : undefined,
+        detectedDiscipline,
+        detectedDisciplineConfidence,
+      },
+      { folder: activeFolder }
+    );
+  };
+
+  const handleManualSave = async (notifyIfSaved: boolean = false): Promise<NoteEntity> => {
     const hadPendingChanges = Boolean(pendingDraftRef.current || !isSaved);
     if (saveTimeoutRef.current) {
       clearTimeout(saveTimeoutRef.current);
       saveTimeoutRef.current = null;
     }
     pendingDraftRef.current = null;
+    const syncedNote = buildCurrentSyncedNote();
+    setDetectedDiscipline(syncedNote.detectedDiscipline);
+    setDetectedDisciplineConfidence(syncedNote.detectedDisciplineConfidence);
+
     if (hadPendingChanges || notifyIfSaved) {
       try {
-        await updateNote({
-          ...note,
-          title,
-          content,
-          folderId: folderId || undefined,
-          subject,
-          tags,
-        });
+        await updateNote(syncedNote);
         setIsSaved(true);
         if (notifyIfSaved || hadPendingChanges) {
           showNotification('Apunte guardado localmente.', 'success');
@@ -202,6 +388,7 @@ export const NoteEditor: React.FC<{
         showNotification('No se pudo guardar el apunte localmente.', 'error');
       }
     }
+    return syncedNote;
   };
 
   const wordsCount = content.trim() ? content.trim().split(/\s+/).length : 0;
@@ -274,21 +461,18 @@ export const NoteEditor: React.FC<{
               <Trash2 className="w-4 h-4" />
             </button>
 
-            {/* Primary CTA: Analyze Concept */}
+            {/* Primary CTA: Analyze Full Note Concepts */}
             <button
               type="button"
               onClick={async () => {
-                await handleManualSave(false);
-                onAnalyze(
-                  { ...note, title, content, folderId: folderId || undefined, subject, tags },
-                  selectedText || undefined
-                );
+                const syncedNote = await handleManualSave(false);
+                onAnalyze(syncedNote);
               }}
               className="inline-flex items-center gap-1.5 min-h-[40px] sm:min-h-[38px] px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs shadow-2xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600 focus-visible:ring-offset-2"
-              title="Extraer y definir conceptos psicológicos de este apunte"
+              title="Extraer y definir conceptos académicos de la nota completa"
             >
               <Layers className="w-3.5 h-3.5 shrink-0" />
-              <span>{selectedText ? 'Analizar selección' : 'Extraer conceptos'}</span>
+              <span>Extraer conceptos</span>
             </button>
           </div>
         </div>
@@ -355,6 +539,88 @@ export const NoteEditor: React.FC<{
             </div>
           </div>
 
+          {/* Academic Context Control (Auto vs Manual) */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-2.5 border-t border-stone-100 dark:border-stone-800">
+            <div className="flex items-center justify-between sm:justify-start gap-2.5">
+              <span className="inline-flex items-center gap-1.5 text-xs font-medium text-stone-600 dark:text-stone-400">
+                <GraduationCap className="w-3.5 h-3.5 text-stone-400 shrink-0" aria-hidden="true" />
+                <span>Contexto académico</span>
+              </span>
+
+              <div
+                role="group"
+                aria-label="Modo de contexto académico del apunte"
+                className="inline-flex items-center p-0.5 rounded-xl bg-stone-100 dark:bg-stone-800 border border-stone-200/80 dark:border-stone-700/80"
+              >
+                <button
+                  type="button"
+                  onClick={() => handleAcademicModeChange('auto')}
+                  aria-pressed={disciplineMode === 'auto'}
+                  className={`min-h-[32px] px-2.5 py-1 rounded-lg text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600 ${
+                    disciplineMode === 'auto'
+                      ? 'bg-white dark:bg-stone-900 text-indigo-700 dark:text-indigo-300 shadow-2xs font-semibold'
+                      : 'text-stone-600 dark:text-stone-400 hover:text-stone-900 dark:hover:text-stone-200'
+                  }`}
+                  title="Detectar automáticamente la disciplina según el contenido del apunte"
+                >
+                  Auto
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleAcademicModeChange('manual')}
+                  aria-pressed={disciplineMode === 'manual'}
+                  className={`min-h-[32px] px-2.5 py-1 rounded-lg text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600 ${
+                    disciplineMode === 'manual'
+                      ? 'bg-white dark:bg-stone-900 text-indigo-700 dark:text-indigo-300 shadow-2xs font-semibold'
+                      : 'text-stone-600 dark:text-stone-400 hover:text-stone-900 dark:hover:text-stone-200'
+                  }`}
+                  title="Fijar manualmente una disciplina para este apunte"
+                >
+                  Manual
+                </button>
+              </div>
+            </div>
+
+            {disciplineMode === 'auto' ? (
+              <div
+                role="status"
+                aria-live="polite"
+                className="flex items-center justify-between sm:justify-end gap-2 min-w-0"
+              >
+                <span
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-stone-50 dark:bg-stone-800/70 text-stone-800 dark:text-stone-200 text-xs font-medium border border-stone-200/80 dark:border-stone-700/80 truncate"
+                  title={academicSummary.badgeTooltip}
+                >
+                  <span className="truncate">{academicSummary.disciplineLabel}</span>
+                </span>
+                <span className="text-[11px] text-stone-500 dark:text-stone-400 truncate">
+                  {academicSummary.statusDescription}
+                </span>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 flex-1 sm:max-w-xs">
+                <label htmlFor="note-manual-discipline-select" className="sr-only">
+                  Disciplina académica manual del apunte
+                </label>
+                <select
+                  id="note-manual-discipline-select"
+                  value={manualDiscipline || academicSummary.areaId}
+                  onChange={(e) => handleAcademicModeChange('manual', e.target.value)}
+                  className="w-full min-h-[38px] px-3 py-1.5 text-base sm:text-xs rounded-xl bg-stone-50 dark:bg-stone-800/70 border border-indigo-300 dark:border-indigo-800 text-stone-900 dark:text-stone-100 font-medium focus:outline-none focus:ring-2 focus:ring-indigo-600"
+                >
+                  {manualDiscipline && !isValidAcademicAreaId(manualDiscipline) && (
+                    <option value={manualDiscipline}>{manualDiscipline}</option>
+                  )}
+                  {ACADEMIC_AREAS_LIST.map((area) => (
+                    <option key={area.id} value={area.id}>
+                      {area.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+          </div>
+
           {/* Tags list & add tag */}
           <div className="flex items-center gap-1.5 flex-wrap pt-2 border-t border-stone-100 dark:border-stone-800">
             <Tag className="w-3.5 h-3.5 text-stone-400 shrink-0 mr-0.5" aria-hidden="true" />
@@ -412,21 +678,29 @@ export const NoteEditor: React.FC<{
             <span className="line-clamp-1 italic text-stone-600 dark:text-stone-300">
               Selección: «{selectedText}»
             </span>
-            <button
-              type="button"
-              onClick={async () => {
-                const currentSelection = selectedText;
-                await handleManualSave(false);
-                onAnalyze(
-                  { ...note, title, content, folderId: folderId || undefined, subject, tags },
-                  currentSelection
-                );
-              }}
-              className="shrink-0 font-semibold text-indigo-600 dark:text-indigo-400 hover:underline inline-flex items-center gap-1 py-1 px-2 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600"
-            >
-              <Layers className="w-3.5 h-3.5" />
-              <span>Analizar fragmento</span>
-            </button>
+            <div className="flex items-center gap-1.5 shrink-0">
+              <button
+                type="button"
+                onClick={async () => {
+                  const currentSelection = selectedText;
+                  const syncedNote = await handleManualSave(false);
+                  onAnalyze(syncedNote, currentSelection);
+                }}
+                className="font-semibold text-indigo-600 dark:text-indigo-400 hover:underline inline-flex items-center gap-1 py-1 px-2 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600"
+              >
+                <Layers className="w-3.5 h-3.5" />
+                <span>Analizar fragmento</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelectedText('')}
+                aria-label="Descartar selección de texto"
+                title="Descartar selección"
+                className="inline-flex items-center justify-center min-w-[28px] min-h-[28px] rounded-lg text-stone-500 hover:text-stone-800 dark:text-stone-400 dark:hover:text-stone-200 hover:bg-indigo-100/80 dark:hover:bg-indigo-900/50 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
           </div>
         )}
 

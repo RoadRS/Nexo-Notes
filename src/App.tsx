@@ -15,13 +15,19 @@ import { LibraryView } from './components/Library/LibraryView';
 import { AnalyzeView } from './components/Analysis/AnalyzeView';
 import { SettingsView } from './components/Settings/SettingsView';
 import { AndroidArchitectureModal } from './components/Android/AndroidArchitectureModal';
+import { AcademicOnboardingModal } from './components/Onboarding/AcademicOnboardingModal';
 import { PWAInstallButton } from './components/PWAInstallButton';
 import { NoteEntity, DocumentEntity } from './types/models';
 import { PsychologyLogo } from './components/Common/PsychologyLogo';
+import { buildInitialNoteEntity, shouldShowAcademicOnboarding } from './utils/academicContext';
 import { Sparkles, CheckCircle2, AlertCircle, Info, Download } from 'lucide-react';
 
+// Fase 3.1: Retirada temporal y reversible de la vista Biblioteca / flujo de documentos
+const ENABLE_DOCUMENT_LIBRARY_VIEW = false;
+
 const MainAppContent: React.FC = () => {
-  const { activeNote, setActiveNote, activeTab, notification, isLoading } = useApp();
+  const { activeNote, setActiveNote, activeTab, notification, isLoading, preferences } = useApp();
+  const showOnboarding = shouldShowAcademicOnboarding(preferences, isLoading);
 
   // State for active analysis modal
   const [analysisNote, setAnalysisNote] = useState<NoteEntity | null>(null);
@@ -46,18 +52,18 @@ const MainAppContent: React.FC = () => {
       ? doc.pages.filter((p) => pageRange.includes(p.pageNumber))
       : doc.pages;
     const combinedText = pagesToAnalyze.map((p) => `[Página ${p.pageNumber}]\n${p.content}`).join('\n\n');
-    setAnalysisNote({
-      id: doc.id,
-      title: doc.fileName,
-      content: combinedText,
-      subject: doc.subject,
-      tags: ['Documento', doc.fileType.toUpperCase()],
-      isPinned: false,
-      createdAt: doc.createdAt,
-      updatedAt: doc.createdAt,
-      wordCount: combinedText.split(/\s+/).length,
-      charCount: combinedText.length,
-    });
+    setAnalysisNote(
+      buildInitialNoteEntity({
+        id: doc.id,
+        title: doc.fileName,
+        content: combinedText,
+        subject: doc.subject,
+        tags: ['Documento', doc.fileType.toUpperCase()],
+        isPinned: false,
+        preferences,
+        now: doc.createdAt,
+      })
+    );
     setAnalysisCustomText(combinedText);
     setAnalysisDocSource({
       docId: doc.id,
@@ -145,14 +151,14 @@ const MainAppContent: React.FC = () => {
 
       {/* Main Body per Active Tab */}
       <main className="flex-1 w-full">
-        {activeTab === 'notes' && (
+        {(activeTab === 'notes' || (!ENABLE_DOCUMENT_LIBRARY_VIEW && activeTab === 'library')) && (
           <NotesList onAnalyzeNote={(note) => handleLaunchAnalysis(note)} />
         )}
         {activeTab === 'analyze' && (
           <AnalyzeView onLaunchAnalysis={(note, text) => handleLaunchAnalysis(note, text)} />
         )}
         {activeTab === 'glossary' && <GlossaryView />}
-        {activeTab === 'library' && (
+        {ENABLE_DOCUMENT_LIBRARY_VIEW && activeTab === 'library' && (
           <LibraryView onAnalyzeDocument={handleAnalyzeDocument} />
         )}
         {activeTab === 'settings' && (
@@ -183,6 +189,9 @@ const MainAppContent: React.FC = () => {
           onClose={() => setIsAndroidArchitectureOpen(false)}
         />
       )}
+
+      {/* Initial Academic Context Onboarding Modal */}
+      {showOnboarding && <AcademicOnboardingModal />}
     </div>
   );
 };

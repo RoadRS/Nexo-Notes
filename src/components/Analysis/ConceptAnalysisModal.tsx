@@ -10,6 +10,22 @@ import {
 } from '../../types/models';
 import { localDB } from '../../db/indexedDB';
 import {
+  buildExtractionRequestPayload,
+  createExtractionConcurrencyGuard,
+} from '../../utils/conceptExtractor';
+import {
+  buildContextualDefinitionTermPayload,
+  isPlaceholderContextSnippet,
+} from '../../utils/conceptDefiner';
+import {
+  isCacheEntryCompatibleWithContext,
+  isSameGlossaryConceptIdentity,
+  isTermInGlossaryForContext,
+  mergeGlossaryConceptOnSave,
+  resolveContextualCacheKey,
+  resolveSpecificAcademicAreaId,
+} from '../../utils/cacheIntegrity';
+import {
   Sparkles,
   Search,
   CheckCircle2,
@@ -77,19 +93,40 @@ export const ConceptAnalysisModal: React.FC<{
   sourcePageMap?: Array<{ page: number; text: string }>;
   onClose: () => void;
 }> = ({ note, initialText, sourceDocId, sourceDocName, sourcePageMap, onClose }) => {
-  const { glossary, saveMultipleConcepts, showNotification, updateNote } = useApp();
+  const { glossary, folders, preferences, saveMultipleConcepts, showNotification, updateNote } =
+    useApp();
 
   const textToAnalyze = initialText || note?.content || '';
-  const noteSubject = note?.subject || 'General';
-  const noteTitle = note?.title || 'Apunte académico';
+  const extractionPayload = buildExtractionRequestPayload({
+    text: textToAnalyze,
+    title: note?.title || 'Apunte académico',
+    defaultSubject: note?.subject,
+    note,
+    folders,
+    academicProfile: preferences.academicProfile,
+  });
+  const noteSubject = extractionPayload.subject;
+  const noteTitle = extractionPayload.title;
+  const noteAreaId = extractionPayload.academicContext.areaId;
+
+  const buildTermContext = (academicField?: string) => {
+    const fieldArea = resolveSpecificAcademicAreaId(academicField);
+    return {
+      areaId: fieldArea || (noteAreaId !== 'general' ? noteAreaId : undefined),
+      academicField: academicField || noteSubject,
+    };
+  };
 
   // Modal Stages: 'preview' -> 'detecting' -> 'review' -> 'verifying' -> 'results'
   const [stage, setStage] = useState<'preview' | 'detecting' | 'review' | 'verifying' | 'results'>('preview');
   const [extractedTerms, setExtractedTerms] = useState<ExtractedTerm[]>([]);
   const [verifiedResults, setVerifiedResults] = useState<VerifiedResult[]>([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isExtracting, setIsExtracting] = useState(false);
   const [customTermInput, setCustomTermInput] = useState('');
   const [expandedCard, setExpandedCard] = useState<string | null>(null);
+
+  const extractionGuardRef = useRef(createExtractionConcurrencyGuard());
 
   // Batch progress and cancellation
   const [batchProgress, setBatchProgress] = useState<{
@@ -112,57 +149,75 @@ export const ConceptAnalysisModal: React.FC<{
       return;
     }
 
-    setStage('detecting');
-    setErrorMessage(null);
-
-    try {
-      const response = await fetch('/api/analyze/extract-terms', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          text: textToAnalyze,
-          subject: noteSubject,
-          noteTitle,
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`Error en servidor: ${response.statusText}`);
-      }
-
-      const data = await response.json();
-      const rawTerms: any[] = data.terms || [];
-
-      // Check duplicates with local glossary and cache
-      const existingGlossaryNames = new Set(glossary.map((g) => g.normalizedName));
-
-      const processedTerms: ExtractedTerm[] = await Promise.all(
-        rawTerms.map(async (t) => {
-          const norm = (t.name || '').trim().toLowerCase();
-          const inGlossary = existingGlossaryNames.has(norm);
-          const cached = await localDB.getCachedAnalysis(norm);
-
-          return {
-            name: t.name,
-            normalizedName: norm,
-            academicField: t.academicField || noteSubject,
-            contextSnippet: t.contextSnippet || '',
-            isCompound: !!t.isCompound || t.name.includes(' '),
-            selected: !inGlossary, // Check by default for contextual review
-            alreadyInGlossary: inGlossary,
-            cachedResult: cached,
-            forceReverify: false,
-          };
-        })
-      );
-
-      setExtractedTerms(processedTerms);
-      setStage('review');
-    } catch (err: any) {
-      console.error('Error detectando términos:', err);
-      setErrorMessage(err?.message || 'Error al conectar con el analizador de conceptos.');
-      setStage('preview');
+    if (extractionGuardRef.current.isBusy()) {
+      return;
     }
+
+    const hadPreviousTerms = extractedTerms.length > 0;
+
+    await extractionGuardRef.current.run(async () => {
+      setIsExtracting(true);
+      setStage('detecting');
+      setErrorMessage(null);
+
+      try {
+        const response = await fetch('/api/analyze/extract-terms', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(extractionPayload),
+        });
+
+        if (!response.ok) {
+          const errBody = await response.json().catch(() => ({}));
+          throw new Error(
+            errBody?.error ||
+              `El servicio de análisis no pudo extraer los conceptos (código ${response.status}).`
+          );
+        }
+
+        const data = await response.json();
+        if (!data || !Array.isArray(data.terms)) {
+          throw new Error('La respuesta del servidor no contiene un listado válido de conceptos.');
+        }
+
+        const rawTerms: any[] = data.terms;
+
+        const processedTerms: ExtractedTerm[] = await Promise.all(
+          rawTerms.map(async (t) => {
+            const norm = (t.name || '').trim().toLowerCase();
+            const effectiveField = t.academicField || noteSubject;
+            const termContext = buildTermContext(effectiveField);
+            const inGlossary = isTermInGlossaryForContext(glossary, norm, termContext);
+            const cached = await localDB.getCachedAnalysis(norm, termContext);
+
+            return {
+              name: t.name,
+              normalizedName: norm,
+              academicField: effectiveField,
+              contextSnippet: t.contextSnippet || '',
+              isCompound: !!t.isCompound || t.name.includes(' '),
+              selected: !inGlossary, // Check by default for contextual review
+              alreadyInGlossary: inGlossary,
+              cachedResult: cached,
+              forceReverify: false,
+            };
+          })
+        );
+
+        setExtractedTerms(processedTerms);
+        setStage('review');
+      } catch (err: any) {
+        console.error('Error detectando términos:', err);
+        setErrorMessage(
+          err?.message ||
+            'No se pudo completar la extracción de conceptos. Puedes reintentar sin cerrar esta ventana.'
+        );
+        // Preserve previously extracted terms if the user was already on the review screen
+        setStage(hadPreviousTerms ? 'review' : 'preview');
+      } finally {
+        setIsExtracting(false);
+      }
+    });
   };
 
   // Term selection toggles in review stage
@@ -188,8 +243,9 @@ export const ConceptAnalysisModal: React.FC<{
     const val = customTermInput.trim();
     if (!val) return;
     const norm = val.toLowerCase();
-    const inGlossary = glossary.some((g) => g.normalizedName === norm);
-    const cached = await localDB.getCachedAnalysis(norm);
+    const termContext = buildTermContext(noteSubject);
+    const inGlossary = isTermInGlossaryForContext(glossary, norm, termContext);
+    const cached = await localDB.getCachedAnalysis(norm, termContext);
 
     setExtractedTerms((prev) => [
       ...prev,
@@ -264,11 +320,11 @@ export const ConceptAnalysisModal: React.FC<{
       });
 
       // Check persistent cache: If mode is contextual or cached matches requested mode and user didn't force
+      const termContext = buildTermContext(termItem.academicField);
       if (
         termItem.cachedResult &&
         !termItem.forceReverify &&
-        termItem.cachedResult.academicDefinition &&
-        !termItem.cachedResult.academicDefinition.toLowerCase().includes('error al contactar') &&
+        isCacheEntryCompatibleWithContext(termItem.cachedResult, termContext) &&
         (mode === 'contextual' ||
           (mode === 'google_search' && termItem.cachedResult.queryStatus === 'fuentes_consultadas') ||
           (mode === 'grounding' && termItem.cachedResult.queryStatus === 'contrastado_web'))
@@ -290,7 +346,11 @@ export const ConceptAnalysisModal: React.FC<{
           consultedAt: cached.consultedAt || new Date(cached.analyzedAt).toISOString(),
           notice:
             cached.queryStatus === 'contrastado_web'
-              ? 'Contrastado con fuentes web vía Google Search Grounding'
+              ? cached.verificationStatus === 'verificado'
+                ? 'Contrastado con fuentes web vía Google Search Grounding'
+                : cached.verificationStatus === 'discrepancia'
+                ? 'Contrastado con fuentes web: se detectaron discrepancias entre fuentes'
+                : 'Se consultaron fuentes web, pero no aportan respaldo suficiente para verificar la afirmación'
               : cached.queryStatus === 'fuentes_consultadas'
               ? 'Fuentes consultadas en la web. No constituye verificación automática de afirmaciones.'
               : 'Definición contextual generada por IA (no verificada externamente)',
@@ -326,11 +386,14 @@ export const ConceptAnalysisModal: React.FC<{
           headers: { 'Content-Type': 'application/json' },
           signal: abortController.signal,
           body: JSON.stringify({
-            term: {
+            term: buildContextualDefinitionTermPayload({
               name: termItem.name,
-              context: termItem.contextSnippet,
-              subject: termItem.academicField,
-            },
+              contextSnippet: termItem.contextSnippet,
+              academicField: termItem.academicField,
+              noteTitle,
+              noteText: textToAnalyze,
+              academicContext: extractionPayload.academicContext,
+            }),
           }),
         });
 
@@ -361,26 +424,35 @@ export const ConceptAnalysisModal: React.FC<{
           quotaExceeded: resItem.quotaExceeded,
           isFromCache: false,
           savedToGlossary: false,
+          hasError: false,
+          errorDetails: undefined,
           selectedForBatch: true,
         };
 
-        // Cache in IndexedDB
-        await localDB.saveCachedAnalysis({
-          termKey: termItem.normalizedName,
-          termName: resItem.termName,
-          academicField: resItem.academicField,
-          academicDefinition: resItem.academicDefinition,
-          plainExplanation: resItem.plainExplanation,
-          illustrativeExample: resItem.illustrativeExample,
-          sources: resItem.sources || [],
-          supportedSegments: resItem.supportedSegments || [],
-          verificationStatus: resItem.verificationStatus,
-          queryStatus: newResult.queryStatus,
-          queriesConsulted: resItem.queriesConsulted || [resItem.termName],
-          groundingUsed: !!resItem.groundingUsed,
-          analyzedAt: Date.now(),
-          consultedAt: newResult.consultedAt,
-        });
+        // Cache in IndexedDB with contextual key
+        const saveContext = buildTermContext(resItem.academicField || termItem.academicField);
+        const contextualKey = resolveContextualCacheKey(resItem.termName || termItem.name, saveContext);
+        await localDB.saveCachedAnalysis(
+          {
+            termKey: contextualKey,
+            termName: resItem.termName,
+            academicField: resItem.academicField,
+            academicAreaId: resolveSpecificAcademicAreaId(saveContext) ?? undefined,
+            academicContextKey: contextualKey,
+            academicDefinition: resItem.academicDefinition,
+            plainExplanation: resItem.plainExplanation,
+            illustrativeExample: resItem.illustrativeExample,
+            sources: resItem.sources || [],
+            supportedSegments: resItem.supportedSegments || [],
+            verificationStatus: resItem.verificationStatus,
+            queryStatus: newResult.queryStatus,
+            queriesConsulted: resItem.queriesConsulted || [resItem.termName],
+            groundingUsed: !!resItem.groundingUsed,
+            analyzedAt: Date.now(),
+            consultedAt: newResult.consultedAt,
+          },
+          saveContext
+        );
 
         const existingIdx = accumulatedResults.findIndex(
           (r) => r.termName.toLowerCase() === termItem.normalizedName
@@ -421,7 +493,16 @@ export const ConceptAnalysisModal: React.FC<{
           (r) => r.termName.toLowerCase() === termItem.normalizedName
         );
         if (existingIdx >= 0) {
-          accumulatedResults[existingIdx] = errorResult;
+          const prevResult = accumulatedResults[existingIdx];
+          if (!prevResult.hasError && prevResult.academicDefinition) {
+            accumulatedResults[existingIdx] = {
+              ...prevResult,
+              isLoadingAction: false,
+              errorDetails: err?.message || String(err),
+            };
+          } else {
+            accumulatedResults[existingIdx] = errorResult;
+          }
         } else {
           accumulatedResults.push(errorResult);
         }
@@ -464,11 +545,14 @@ export const ConceptAnalysisModal: React.FC<{
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          term: {
+          term: buildContextualDefinitionTermPayload({
             name: target.termName,
-            context: target.context,
-            subject: target.academicField,
-          },
+            contextSnippet: target.context,
+            academicField: target.academicField,
+            noteTitle,
+            noteText: textToAnalyze,
+            academicContext: extractionPayload.academicContext,
+          }),
         }),
       });
 
@@ -488,47 +572,73 @@ export const ConceptAnalysisModal: React.FC<{
         academicField: resItem.academicField || target.academicField,
         sources: resItem.sources || [],
         supportedSegments: resItem.supportedSegments || [],
-        verificationStatus: resItem.verificationStatus || target.verificationStatus,
+        verificationStatus:
+          resItem.verificationStatus ||
+          (mode === 'contextual' ? 'no_verificado' : target.verificationStatus),
         queryStatus: resItem.queryStatus || (mode === 'google_search' ? 'fuentes_consultadas' : mode === 'grounding' ? 'contrastado_web' : 'sin_verificar'),
         queriesConsulted: resItem.queriesConsulted || target.queriesConsulted,
         consultedAt: resItem.consultedAt || new Date().toISOString(),
         notice: resItem.notice,
-        groundingUsed: resItem.groundingUsed,
+        groundingUsed: mode === 'contextual' ? false : resItem.groundingUsed,
         quotaExceeded: resItem.quotaExceeded,
         isFromCache: false,
         isLoadingAction: false,
         hasError: false,
+        errorDetails: undefined,
       };
 
-      // Update in cache
-      await localDB.saveCachedAnalysis({
-        termKey: target.termName.trim().toLowerCase(),
-        termName: target.termName,
-        academicField: updated.academicField,
-        academicDefinition: updated.academicDefinition,
-        plainExplanation: updated.plainExplanation,
-        illustrativeExample: updated.illustrativeExample,
-        sources: updated.sources,
-        supportedSegments: updated.supportedSegments,
-        verificationStatus: updated.verificationStatus,
-        queryStatus: updated.queryStatus,
-        queriesConsulted: updated.queriesConsulted,
-        groundingUsed: !!updated.groundingUsed,
-        analyzedAt: Date.now(),
-        consultedAt: updated.consultedAt,
-      });
+      // Update in cache with contextual key
+      const saveContext = buildTermContext(updated.academicField);
+      const contextualKey = resolveContextualCacheKey(target.termName, saveContext);
+      await localDB.saveCachedAnalysis(
+        {
+          termKey: contextualKey,
+          termName: target.termName,
+          academicField: updated.academicField,
+          academicAreaId: resolveSpecificAcademicAreaId(saveContext) ?? undefined,
+          academicContextKey: contextualKey,
+          academicDefinition: updated.academicDefinition,
+          plainExplanation: updated.plainExplanation,
+          illustrativeExample: updated.illustrativeExample,
+          sources: updated.sources,
+          supportedSegments: updated.supportedSegments,
+          verificationStatus: updated.verificationStatus,
+          queryStatus: updated.queryStatus,
+          queriesConsulted: updated.queriesConsulted,
+          groundingUsed: !!updated.groundingUsed,
+          analyzedAt: Date.now(),
+          consultedAt: updated.consultedAt,
+        },
+        saveContext
+      );
 
       setVerifiedResults((prev) =>
         prev.map((r) => (r.termName === termName ? updated : r))
       );
 
-      const msg =
-        mode === 'google_search'
-          ? `Fuentes de Google Search consultadas para "${termName}".`
-          : mode === 'grounding'
-          ? `Verificación con Google Grounding completada para "${termName}".`
-          : `Definición contextual actualizada para "${termName}".`;
-      showNotification(msg, 'success');
+      let msg = `Definición contextual actualizada para "${termName}".`;
+      let toastType: 'success' | 'info' = 'success';
+      if (mode === 'google_search') {
+        if (updated.sources.length > 0) {
+          msg = `Se encontraron ${updated.sources.length} fuente(s) web para "${termName}" (consulta de referencias, sin verificación automática).`;
+          toastType = 'success';
+        } else {
+          msg = `Búsqueda completada para "${termName}": no se encontraron fuentes web específicas.`;
+          toastType = 'info';
+        }
+      } else if (mode === 'grounding') {
+        if (updated.verificationStatus === 'verificado') {
+          msg = `Afirmación contrastada y respaldada con fuentes web para "${termName}".`;
+          toastType = 'success';
+        } else if (updated.verificationStatus === 'discrepancia') {
+          msg = `Contrastación completada para "${termName}": se detectaron discrepancias entre fuentes.`;
+          toastType = 'info';
+        } else {
+          msg = `Contrastación completada para "${termName}": sin respaldo suficiente en fuentes web.`;
+          toastType = 'info';
+        }
+      }
+      showNotification(msg, toastType);
     } catch (err: any) {
       console.error(`Error en acción para ${termName}:`, err);
       setVerifiedResults((prev) =>
@@ -623,11 +733,13 @@ export const ConceptAnalysisModal: React.FC<{
         else matchedPage = sourcePageMap[0].page;
       }
 
-      return {
+      const termContext = buildTermContext(r.academicField);
+      const draftConcept: ConceptEntity = {
         id: `concept-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
         termName: r.termName,
         normalizedName: r.termName.trim().toLowerCase(),
         academicField: r.academicField,
+        academicAreaId: resolveSpecificAcademicAreaId(termContext) ?? undefined,
         context: r.context,
         academicDefinition: r.academicDefinition,
         plainExplanation: r.plainExplanation,
@@ -646,6 +758,9 @@ export const ConceptAnalysisModal: React.FC<{
         lastCheckedAt: Date.now(),
         consultedAt: r.consultedAt,
       };
+
+      const existingMatch = glossary.find((g) => isSameGlossaryConceptIdentity(g, draftConcept));
+      return mergeGlossaryConceptOnSave(existingMatch, draftConcept);
     });
 
     await saveMultipleConcepts(newConcepts);
@@ -688,7 +803,7 @@ export const ConceptAnalysisModal: React.FC<{
                 id="concept-analysis-modal-subtitle"
                 className="text-xs text-stone-600 dark:text-stone-400 truncate mt-0.5"
               >
-                {noteTitle} {note?.subject ? `· ${note.subject}` : ''}
+                {noteTitle} {noteSubject ? `· ${noteSubject}` : ''}
               </p>
             </div>
           </div>
@@ -707,13 +822,26 @@ export const ConceptAnalysisModal: React.FC<{
           {errorMessage && (
             <div
               role="alert"
-              className="flex items-start gap-3 p-3.5 rounded-xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/60 text-xs sm:text-sm text-red-800 dark:text-red-200"
+              className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 rounded-xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/60 text-xs sm:text-sm text-red-800 dark:text-red-200"
             >
-              <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-red-600 dark:text-red-400" />
-              <div className="space-y-0.5">
-                <p className="font-semibold">No se pudo completar el análisis</p>
-                <p className="text-red-700 dark:text-red-300 leading-relaxed">{errorMessage}</p>
+              <div className="flex items-start gap-3">
+                <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-red-600 dark:text-red-400" />
+                <div className="space-y-0.5">
+                  <p className="font-semibold">No se pudo completar la extracción</p>
+                  <p className="text-red-700 dark:text-red-300 leading-relaxed">{errorMessage}</p>
+                </div>
               </div>
+              {(stage === 'preview' || stage === 'review') && (
+                <button
+                  type="button"
+                  onClick={handleExtractTerms}
+                  disabled={isExtracting}
+                  className="shrink-0 min-h-[38px] inline-flex items-center justify-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-red-100 hover:bg-red-200 dark:bg-red-900/60 dark:hover:bg-red-900 text-red-900 dark:text-red-100 font-semibold text-xs border border-red-300 dark:border-red-800 disabled:opacity-50 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600"
+                >
+                  <RotateCcw className="w-3.5 h-3.5 shrink-0" />
+                  <span>Reintentar extracción</span>
+                </button>
+              )}
             </div>
           )}
 
@@ -783,7 +911,8 @@ export const ConceptAnalysisModal: React.FC<{
                 <button
                   type="button"
                   onClick={handleExtractTerms}
-                  className="min-h-[44px] inline-flex items-center justify-center gap-2 px-5 py-2.5 text-xs sm:text-sm font-semibold rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white transition-colors shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600 focus-visible:ring-offset-2"
+                  disabled={isExtracting}
+                  className="min-h-[44px] inline-flex items-center justify-center gap-2 px-5 py-2.5 text-xs sm:text-sm font-semibold rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:pointer-events-none text-white transition-colors shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600 focus-visible:ring-offset-2"
                 >
                   <Search className="w-4 h-4 shrink-0" />
                   <span>Extraer conceptos del apunte</span>
@@ -867,13 +996,24 @@ export const ConceptAnalysisModal: React.FC<{
               {/* Terms Checklist */}
               <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
                 {extractedTerms.length === 0 ? (
-                  <div className="text-center py-8 px-4 rounded-xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 space-y-1">
+                  <div className="text-center py-8 px-4 rounded-xl bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 space-y-2">
                     <p className="text-xs sm:text-sm font-medium text-stone-700 dark:text-stone-300">
-                      No se detectaron conceptos automáticamente en este fragmento.
+                      El texto se procesó correctamente, pero no se identificaron conceptos técnicos en este fragmento.
                     </p>
                     <p className="text-xs text-stone-500 dark:text-stone-400">
-                      Escribe un término en el campo superior para añadirlo y analizarlo.
+                      Escribe un término en el campo superior para añadirlo manualmente o vuelve a ejecutar la extracción.
                     </p>
+                    <div className="pt-1">
+                      <button
+                        type="button"
+                        onClick={handleExtractTerms}
+                        disabled={isExtracting}
+                        className="min-h-[36px] inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 disabled:opacity-50 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600"
+                      >
+                        <RotateCcw className="w-3.5 h-3.5" />
+                        <span>Volver a extraer conceptos</span>
+                      </button>
+                    </div>
                   </div>
                 ) : (
                   extractedTerms.map((t, idx) => (
@@ -929,7 +1069,7 @@ export const ConceptAnalysisModal: React.FC<{
                           )}
                         </div>
 
-                        {t.contextSnippet && (
+                        {t.contextSnippet && !isPlaceholderContextSnippet(t.contextSnippet) && (
                           <p className="text-xs text-stone-600 dark:text-stone-400 italic line-clamp-2 leading-relaxed">
                             "{t.contextSnippet}"
                           </p>
@@ -1312,6 +1452,19 @@ export const ConceptAnalysisModal: React.FC<{
                         </div>
                       </div>
 
+                      {/* Action Error Banner when preserving a previous valid definition */}
+                      {r.errorDetails && (
+                        <div
+                          role="alert"
+                          className="p-3 rounded-xl bg-red-50/80 dark:bg-red-950/40 border border-red-200 dark:border-red-900/60 text-xs text-red-800 dark:text-red-200 leading-relaxed flex items-start gap-2"
+                        >
+                          <AlertTriangle className="w-4 h-4 text-red-600 dark:text-red-400 shrink-0 mt-0.5" />
+                          <span>
+                            {r.errorDetails} Se conserva la definición válida anterior.
+                          </span>
+                        </div>
+                      )}
+
                       {/* Notice / Quota Banner */}
                       {r.notice && (
                         <div
@@ -1348,7 +1501,7 @@ export const ConceptAnalysisModal: React.FC<{
                         <p className="font-semibold text-stone-500 dark:text-stone-400 text-[11px] uppercase tracking-wider">
                           Definición académica
                         </p>
-                        <p className="text-sm sm:text-[15px] text-stone-900 dark:text-stone-100 leading-relaxed max-w-prose">
+                        <p className="text-sm sm:text-[15px] text-stone-900 dark:text-stone-100 leading-relaxed whitespace-pre-line max-w-prose">
                           {r.academicDefinition}
                         </p>
                       </div>
@@ -1359,7 +1512,7 @@ export const ConceptAnalysisModal: React.FC<{
                           <p className="font-semibold text-stone-700 dark:text-stone-300 text-xs">
                             En lenguaje sencillo
                           </p>
-                          <p className="text-xs sm:text-sm text-stone-700 dark:text-stone-300 leading-relaxed max-w-prose">
+                          <p className="text-xs sm:text-sm text-stone-700 dark:text-stone-300 leading-relaxed whitespace-pre-line max-w-prose">
                             {r.plainExplanation}
                           </p>
                         </div>
@@ -1392,7 +1545,7 @@ export const ConceptAnalysisModal: React.FC<{
                               <p className="font-semibold text-stone-800 dark:text-stone-200 text-xs">
                                 Ejemplo práctico
                               </p>
-                              <p className="text-xs sm:text-sm text-stone-700 dark:text-stone-300 leading-relaxed max-w-prose">
+                              <p className="text-xs sm:text-sm text-stone-700 dark:text-stone-300 leading-relaxed whitespace-pre-line max-w-prose">
                                 {r.illustrativeExample}
                               </p>
                             </div>

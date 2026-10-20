@@ -1,7 +1,1 @@
-{
-  "name": "Nexo Notes",
-  "description": "Cuaderno académico inteligente para Android con análisis de conceptos técnicos y fundamentación con fuentes verificables.",
-  "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
-}
-
+{"name":"Nexo Notes","description":"Cuaderno académico inteligente para Android con análisis de conceptos técnicos y fundamentación con fuentes verificables.","requestFramePermissions":[],"majorCapabilities":["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]}
