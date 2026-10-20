@@ -15,25 +15,30 @@ const PORT = process.env.PORT ? parseInt(process.env.PORT) : 3000;
 app.use(express.json({ limit: '25mb' }));
 
 // Initialize GoogleGenAI server-side with required headers
-const geminiApiKey = process.env.GEMINI_API_KEY;
 let ai: GoogleGenAI | null = null;
 
-if (geminiApiKey) {
-  ai = new GoogleGenAI({
-    apiKey: geminiApiKey,
-    httpOptions: {
-      headers: {
-        'User-Agent': 'aistudio-build',
+function getAI(): GoogleGenAI | null {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) return null;
+  if (!ai) {
+    ai = new GoogleGenAI({
+      apiKey,
+      httpOptions: {
+        headers: {
+          'User-Agent': 'aistudio-build',
+        },
       },
-    },
-  });
+    });
+  }
+  return ai;
 }
 
 // Health and AI status endpoint
 app.get('/api/status', (_req: Request, res: Response) => {
+  const aiClient = getAI();
   res.json({
     status: 'ok',
-    aiAvailable: !!geminiApiKey,
+    aiAvailable: !!aiClient,
     model: 'gemini-3.8-flash',
     features: ['local-room-db', 'grounded-search', 'term-extraction', 'backup-export'],
   });
@@ -75,7 +80,8 @@ app.post('/api/analyze/extract-terms', async (req: Request, res: Response) => {
     const chunks = splitTextIntoChunks(cleanText, 3500, 250);
 
     // If Gemini is available, utilize prompt to identify technical, domain-specific and compound terms
-    if (ai) {
+    const aiClient = getAI();
+    if (aiClient) {
       const detectedTermsMap = new Map<string, {
         name: string;
         normalizedName: string;
@@ -113,8 +119,8 @@ ${chunk}
 """`;
 
         try {
-          const response = await ai.models.generateContent({
-            model: 'gemini-3.5-flash-lite',
+          const response = await aiClient.models.generateContent({
+            model: 'gemini-3.1-flash-lite',
             contents: prompt,
             config: {
               responseMimeType: 'application/json',
@@ -169,7 +175,7 @@ ${chunk}
       return res.json({
         terms: termsList,
         totalDetected: termsList.length,
-        method: 'gemini-2.5-flash',
+        method: 'gemini-3.1-flash-lite',
         chunkCount: chunks.length,
       });
     }
@@ -305,7 +311,8 @@ async function callGeminiWithResilience(options: {
   quotaExceeded: boolean;
   modelUsed: string;
 }> {
-  if (!ai) {
+  const aiClient = getAI();
+  if (!aiClient) {
     throw new Error('Servicio de IA no disponible en el servidor (GEMINI_API_KEY no configurada).');
   }
 
@@ -316,7 +323,7 @@ async function callGeminiWithResilience(options: {
     let lastErr: any = null;
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
-        return await ai!.models.generateContent({
+        return await aiClient!.models.generateContent({
           model,
           contents: prompt,
           config,
@@ -376,7 +383,7 @@ async function callGeminiWithResilience(options: {
       // Resilient text generation fallback without external tools (preserves complete educational content)
       try {
         const fallbackRes = await invokeWithRetry(
-          'gemini-3.5-flash-lite',
+          'gemini-3.1-flash-lite',
           { temperature: 0.2 },
           3
         );
@@ -386,7 +393,7 @@ async function callGeminiWithResilience(options: {
           groundingMeta: null,
           groundingUsed: false,
           quotaExceeded: isQuota,
-          modelUsed: 'gemini-3.5-flash-lite',
+          modelUsed: 'gemini-3.1-flash-lite',
         };
       } catch {
         const textRes = await invokeWithRetry('gemini-3.8-flash', { temperature: 0.2 }, 2);
@@ -414,15 +421,15 @@ async function callGeminiWithResilience(options: {
       modelUsed: 'gemini-3.8-flash',
     };
   } catch (primaryErr: any) {
-    console.warn(`[Nexo Notes] gemini-3.8-flash temporalmente no disponible (${primaryErr?.status || primaryErr?.message}). Conmutando a gemini-3.5-flash-lite.`);
-    const liteResponse = await invokeWithRetry('gemini-3.5-flash-lite', { temperature }, 3);
+    console.warn(`[Nexo Notes] gemini-3.8-flash temporalmente no disponible (${primaryErr?.status || primaryErr?.message}). Conmutando a gemini-3.1-flash-lite.`);
+    const liteResponse = await invokeWithRetry('gemini-3.1-flash-lite', { temperature }, 3);
     return {
       text: liteResponse.text || '',
       candidate: liteResponse.candidates?.[0],
       groundingMeta: null,
       groundingUsed: false,
       quotaExceeded: false,
-      modelUsed: 'gemini-3.5-flash-lite',
+      modelUsed: 'gemini-3.1-flash-lite',
     };
   }
 }
